@@ -15,7 +15,6 @@
     "@types/node": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
-    "@vercel/analytics": "^1.5.0",
     "eslint": "latest",
     "next": "latest",
     "react": "latest",
