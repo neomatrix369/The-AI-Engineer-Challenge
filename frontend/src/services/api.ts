@@ -12,6 +12,21 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || FALLBACK_API_URL;
 
 console.log('FinalAPI_BASE_URL:', API_BASE_URL);
 
+// URL formatting utility
+const formatApiUrl = (endpoint: string): string => {
+  // Remove trailing slash if present
+  const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
+
+  // Remove /api suffix if present
+  const cleanBase = base.endsWith('/api') ? base.slice(0, -4) : base;
+
+  // Ensure endpoint starts with /
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+
+  // Construct final URL
+  return `${cleanBase}/api${cleanEndpoint}`;
+};
+
 // Error logging utility with Vercel logging
 const logError = (context: string, error: any) => {
   const errorDetails = {
@@ -57,9 +72,10 @@ const logSuccess = (context: string, data: any) => {
 
 export const api = {
   async chat(request: ChatRequest): Promise<ReadableStream> {
-    console.log('Making API call to:', `${API_BASE_URL}/api/chat`);
+    const url = formatApiUrl('/chat');
+    console.log('Making API call to:', url);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/chat`, {
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -93,9 +109,10 @@ export const api = {
   },
 
   async healthCheck(): Promise<{ status: string }> {
-    console.log('Making health check to:', `${API_BASE_URL}/api/health`);
+    const url = formatApiUrl('/health');
+    console.log('Making health check to:', url);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/health`);
+      const response = await fetch(url);
       if (!response.ok) {
         const errorText = await response.text();
         const error = new Error(`Health Check Error: ${response.status} ${response.statusText}`);
