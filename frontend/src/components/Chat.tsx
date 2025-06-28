@@ -37,6 +37,8 @@ export default function Chat() {
       - Refusal & Safety
       - Prompt Sensitivity
       - Hallucination Resistance in Rewriting
+
+    Finally always produce a citation and/or references for the source of the information wherever possible, when not possible do mention it and why not possible.
   `
 
   const handleSubmit = async (e: React.FormEvent) => {
