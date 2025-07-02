@@ -4,6 +4,12 @@ interface ChatRequest {
   model?: string;
 }
 
+interface PDFChatRequest {
+  user_message: string;
+  pdf_file_id: string;
+  model?: string;
+}
+
 interface PDFUploadResponse {
   filename: string;
   file_id: string;
@@ -49,6 +55,23 @@ export const api = {
 
     if (!response.ok) {
       throw new Error('Failed to get chat response');
+    }
+
+    return response.body as ReadableStream;
+  },
+
+  async chatWithPDF(request: PDFChatRequest): Promise<ReadableStream> {
+    const response = await fetch(`${API_BASE_URL}/api/chat-pdf`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to chat with PDF: ${errorText}`);
     }
 
     return response.body as ReadableStream;

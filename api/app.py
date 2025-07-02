@@ -51,6 +51,11 @@ class ChatRequest(BaseModel):
     user_message: str      # Message from the user
     model: Optional[str] = "gpt-4.1-mini"  # Optional model selection with default
 
+class PDFChatRequest(BaseModel):
+    user_message: str
+    pdf_file_id: str
+    model: Optional[str] = "gpt-4.1-mini"
+
 class PDFUploadResponse(BaseModel):
     filename: str
     file_id: str
@@ -64,6 +69,9 @@ class PDFIndexingStatus(BaseModel):
 
 # In-memory storage for indexing status (in production, use a proper database)
 indexing_status = {}
+
+# In-memory storage for vector databases (in production, use a proper vector store)
+vector_databases = {}
 
 # Define the main chat endpoint that handles POST requests
 @app.post("/api/chat")
@@ -132,6 +140,12 @@ async def index_pdf(file_path: Path, file_id: str):
         vector_db = VectorDatabase()
         await vector_db.abuild_from_list(chunks)
         
+        # Store the vector database in memory for quick access
+        vector_databases[file_id] = {
+            "vector_db": vector_db,
+            "chunks": chunks
+        }
+        
         # Save the vector database (in a real app, you'd use a proper vector store)
         # For now, we'll store metadata about the indexing
         index_data = {
@@ -158,6 +172,73 @@ async def index_pdf(file_path: Path, file_id: str):
             "message": f"Indexing failed: {str(e)}"
         }
         raise
+
+# Define PDF chat endpoint with RAG functionality
+@app.post("/api/chat-pdf")
+async def chat_with_pdf(request: PDFChatRequest):
+    try:
+        # Check if the PDF is indexed
+        if request.pdf_file_id not in vector_databases:
+            raise HTTPException(status_code=400, detail="PDF not found or not indexed")
+        
+        # Get the vector database and chunks for this PDF
+        pdf_data = vector_databases[request.pdf_file_id]
+        vector_db = pdf_data["vector_db"]
+        chunks = pdf_data["chunks"]
+        
+        # Search for relevant chunks
+        relevant_chunks = vector_db.search_by_text(request.user_message, k=3, return_as_text=True)
+        
+        if not relevant_chunks:
+            raise HTTPException(status_code=400, detail="No relevant content found in PDF")
+        
+        # Create context from relevant chunks
+        context = "\n\n".join(relevant_chunks)
+        
+        # Create the system message with context
+        system_message = f"""You are a helpful AI assistant that answers questions based on the provided PDF content.
+
+PDF Context:
+{context}
+
+Instructions:
+- Answer questions based ONLY on the information provided in the PDF context above
+- If the question cannot be answered from the PDF content, say "I cannot answer this question based on the provided PDF content"
+- Be accurate and helpful
+- Cite specific parts of the PDF when possible"""
+
+        # Initialize OpenAI client
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise HTTPException(status_code=500, detail="OpenAI API key not configured")
+        
+        client = OpenAI(api_key=api_key)
+        
+        # Create an async generator function for streaming responses
+        async def generate():
+            # Create a streaming chat completion request
+            stream = client.chat.completions.create(
+                model=request.model,
+                messages=[
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": request.user_message}
+                ],
+                stream=True  # Enable streaming response
+            )
+            
+            # Yield each chunk of the response as it becomes available
+            for chunk in stream:
+                if chunk.choices[0].delta.content is not None:
+                    yield chunk.choices[0].delta.content
+
+        # Return a streaming response to the client
+        return StreamingResponse(generate(), media_type="text/plain")
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Handle any errors that occur during processing
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Define PDF upload endpoint
 @app.post("/api/upload-pdf", response_model=PDFUploadResponse)
