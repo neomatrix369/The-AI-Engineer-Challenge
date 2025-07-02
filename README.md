@@ -171,16 +171,49 @@ Here's a template to get your post started!
 ```
 🚀🎉 Exciting News! 🎉🚀
 
-🏗️ Today, I'm thrilled to announce that I've successfully built and shipped my first-ever LLM using the powerful combination of , and the OpenAI API! 🖥️
+🏗️ Today, I'm thrilled to announce that I've successfully built and shipped my first-ever LLM using the powerful combination of , and the OpenAI API! 🖥️
 
 Check it out 👇
 [LINK TO APP]
 
 A big shoutout to the @AI Makerspace for all making this possible. Couldn't have done it without the incredible community there. 🤗🙏
 
-Looking forward to building with the community! 🙌✨ Here's to many more creations ahead! 🥂🎉
+Looking forward to building with the community! 🙌✨ Here's to many more creations ahead! 🥂🎉
 
 Who else is diving into the world of AI? Let's connect! 🌐💡
 
 #FirstLLMApp 
 ```
+
+## Running the Application
+
+### Backend (API)
+
+To run the backend API, execute the following commands from the **root of the project folder**:
+
+```bash
+export PYTHONPATH=.
+python api/app.py
+```
+
+- `export PYTHONPATH=.` ensures the `aimakerspace` library is available for imports.
+- `python api/app.py` starts the FastAPI backend server.
+
+### Frontend (Next.js)
+
+To run the frontend, execute the following commands from **inside the `frontend` folder**:
+
+```bash
+cd frontend
+npm install
+npm run build
+npx next dev
+```
+
+- `npm install` installs all dependencies.
+- `npm run build` builds the Next.js app.
+- `npx next dev` starts the development server.
+
+---
+
+For more details on each feature and development workflow, see the `MERGE.md` and `docs/PLAN.md` files.

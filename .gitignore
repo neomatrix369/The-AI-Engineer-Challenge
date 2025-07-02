@@ -1,6 +1,12 @@
 # Project Specific
 uv.lock
 
+# Uploaded files
+uploads/
+
+# Indexed data
+indexes/
+
 # Python (Project-wide)
 __pycache__/
 *.py[cod]
