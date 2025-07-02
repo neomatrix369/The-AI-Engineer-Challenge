@@ -8,16 +8,25 @@ interface PDFUploadResponse {
   filename: string;
   file_id: string;
   message: string;
+  indexing_status: string;
 }
 
 interface PDFFile {
   file_id: string;
   original_filename: string;
   uploaded_at: number;
+  indexing_status: string;
+  indexing_message: string;
 }
 
 interface PDFListResponse {
   pdfs: PDFFile[];
+}
+
+interface PDFIndexingStatus {
+  file_id: string;
+  status: string;
+  message: string;
 }
 
 const FALLBACK_API_URL = 'http://localhost:8000';
@@ -67,6 +76,16 @@ export const api = {
     
     if (!response.ok) {
       throw new Error('Failed to list PDFs');
+    }
+
+    return response.json();
+  },
+
+  async getPDFIndexingStatus(fileId: string): Promise<PDFIndexingStatus> {
+    const response = await fetch(`${API_BASE_URL}/api/pdfs/${fileId}/status`);
+    
+    if (!response.ok) {
+      throw new Error('Failed to get PDF indexing status');
     }
 
     return response.json();
