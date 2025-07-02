@@ -11,6 +11,12 @@ from typing import Optional, List
 from dotenv import load_dotenv
 import uuid
 from pathlib import Path
+import json
+import asyncio
+
+# Import aimakerspace components for PDF processing and indexing
+from aimakerspace.text_utils import PDFLoader, CharacterTextSplitter
+from aimakerspace.vectordatabase import VectorDatabase
 
 load_dotenv()
 
@@ -23,6 +29,10 @@ FRONTEND_URL = os.getenv("NEXT_PUBLIC_API_URL", "http://localhost:3000")
 # Create uploads directory if it doesn't exist
 UPLOADS_DIR = Path("uploads")
 UPLOADS_DIR.mkdir(exist_ok=True)
+
+# Create indexes directory for storing vector databases
+INDEXES_DIR = Path("indexes")
+INDEXES_DIR.mkdir(exist_ok=True)
 
 # Configure CORS (Cross-Origin Resource Sharing) middleware
 app.add_middleware(
@@ -45,6 +55,15 @@ class PDFUploadResponse(BaseModel):
     filename: str
     file_id: str
     message: str
+    indexing_status: str
+
+class PDFIndexingStatus(BaseModel):
+    file_id: str
+    status: str  # "pending", "indexing", "completed", "failed"
+    message: str
+
+# In-memory storage for indexing status (in production, use a proper database)
+indexing_status = {}
 
 # Define the main chat endpoint that handles POST requests
 @app.post("/api/chat")
@@ -83,6 +102,63 @@ async def chat(request: ChatRequest):
         # Handle any errors that occur during processing
         raise HTTPException(status_code=500, detail=str(e))
 
+async def index_pdf(file_path: Path, file_id: str):
+    """Index a PDF file using the aimakerspace library"""
+    try:
+        # Update status to indexing
+        indexing_status[file_id] = {
+            "status": "indexing",
+            "message": "Processing PDF and creating embeddings..."
+        }
+        
+        # Load PDF text
+        pdf_loader = PDFLoader(str(file_path))
+        documents = pdf_loader.load_documents()
+        
+        if not documents:
+            raise ValueError("No text could be extracted from the PDF")
+        
+        # Split text into chunks
+        splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+        chunks = splitter.split_texts(documents)
+        
+        # Update status
+        indexing_status[file_id] = {
+            "status": "indexing", 
+            "message": f"Creating embeddings for {len(chunks)} text chunks..."
+        }
+        
+        # Create vector database
+        vector_db = VectorDatabase()
+        await vector_db.abuild_from_list(chunks)
+        
+        # Save the vector database (in a real app, you'd use a proper vector store)
+        # For now, we'll store metadata about the indexing
+        index_data = {
+            "file_id": file_id,
+            "chunks_count": len(chunks),
+            "indexed_at": asyncio.get_event_loop().time(),
+            "status": "completed"
+        }
+        
+        index_file = INDEXES_DIR / f"{file_id}.json"
+        with open(index_file, 'w') as f:
+            json.dump(index_data, f)
+        
+        # Update status to completed
+        indexing_status[file_id] = {
+            "status": "completed",
+            "message": f"Successfully indexed {len(chunks)} text chunks"
+        }
+        
+    except Exception as e:
+        # Update status to failed
+        indexing_status[file_id] = {
+            "status": "failed",
+            "message": f"Indexing failed: {str(e)}"
+        }
+        raise
+
 # Define PDF upload endpoint
 @app.post("/api/upload-pdf", response_model=PDFUploadResponse)
 async def upload_pdf(file: UploadFile = File(...)):
@@ -101,10 +177,20 @@ async def upload_pdf(file: UploadFile = File(...)):
             content = await file.read()
             buffer.write(content)
         
+        # Initialize indexing status
+        indexing_status[file_id] = {
+            "status": "pending",
+            "message": "File uploaded, indexing will start shortly..."
+        }
+        
+        # Start indexing in the background
+        asyncio.create_task(index_pdf(file_path, file_id))
+        
         return PDFUploadResponse(
             filename=file.filename,
             file_id=file_id,
-            message="PDF uploaded successfully"
+            message="PDF uploaded successfully",
+            indexing_status="pending"
         )
     
     except HTTPException:
@@ -123,16 +209,42 @@ async def list_pdfs():
             original_name = "_".join(stored_name.split("_")[1:])  # Remove UUID prefix
             file_id = stored_name.split("_")[0]
             
+            # Get indexing status
+            status_info = indexing_status.get(file_id, {
+                "status": "unknown",
+                "message": "Status unknown"
+            })
+            
             pdf_files.append({
                 "file_id": file_id,
                 "original_filename": original_name,
-                "uploaded_at": file_path.stat().st_mtime
+                "uploaded_at": file_path.stat().st_mtime,
+                "indexing_status": status_info["status"],
+                "indexing_message": status_info["message"]
             })
         
         return {"pdfs": pdf_files}
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list PDFs: {str(e)}")
+
+# Define endpoint to get indexing status for a specific PDF
+@app.get("/api/pdfs/{file_id}/status")
+async def get_pdf_indexing_status(file_id: str):
+    try:
+        status_info = indexing_status.get(file_id, {
+            "status": "unknown",
+            "message": "PDF not found"
+        })
+        
+        return PDFIndexingStatus(
+            file_id=file_id,
+            status=status_info["status"],
+            message=status_info["message"]
+        )
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get indexing status: {str(e)}")
 
 # Define a health check endpoint to verify API status
 @app.get("/api/health")

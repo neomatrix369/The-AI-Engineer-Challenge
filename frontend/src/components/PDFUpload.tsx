@@ -7,6 +7,8 @@ interface PDFFile {
   file_id: string;
   original_filename: string;
   uploaded_at: number;
+  indexing_status: string;
+  indexing_message: string;
 }
 
 export default function PDFUpload() {
@@ -19,6 +21,22 @@ export default function PDFUpload() {
   useEffect(() => {
     loadPDFs();
   }, []);
+
+  // Set up polling for indexing status updates
+  useEffect(() => {
+    const interval = setInterval(() => {
+      // Only poll if there are PDFs that are still being indexed
+      const hasIndexingPDFs = pdfs.some(pdf => 
+        pdf.indexing_status === 'pending' || pdf.indexing_status === 'indexing'
+      );
+      
+      if (hasIndexingPDFs) {
+        loadPDFs();
+      }
+    }, 2000); // Poll every 2 seconds
+
+    return () => clearInterval(interval);
+  }, [pdfs]);
 
   const loadPDFs = async () => {
     try {
@@ -48,7 +66,7 @@ export default function PDFUpload() {
       setUploadMessage('');
       
       const response = await api.uploadPDF(file);
-      setUploadMessage(`Successfully uploaded: ${response.filename}`);
+      setUploadMessage(`Successfully uploaded: ${response.filename}. Indexing will start shortly...`);
       
       // Reload the PDF list
       await loadPDFs();
@@ -65,6 +83,45 @@ export default function PDFUpload() {
 
   const formatDate = (timestamp: number) => {
     return new Date(timestamp * 1000).toLocaleString();
+  };
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return (
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+            Pending
+          </span>
+        );
+      case 'indexing':
+        return (
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+            <svg className="animate-spin -ml-1 mr-2 h-3 w-3 text-blue-800" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            Indexing
+          </span>
+        );
+      case 'completed':
+        return (
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+            Ready
+          </span>
+        );
+      case 'failed':
+        return (
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+            Failed
+          </span>
+        );
+      default:
+        return (
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+            Unknown
+          </span>
+        );
+    }
   };
 
   return (
@@ -133,11 +190,19 @@ export default function PDFUpload() {
                   <p className="text-sm text-gray-500">
                     Uploaded: {formatDate(pdf.uploaded_at)}
                   </p>
+                  {(pdf.indexing_status === 'pending' || pdf.indexing_status === 'indexing') && (
+                    <p className="text-sm text-blue-600 mt-1">
+                      {pdf.indexing_message}
+                    </p>
+                  )}
+                  {pdf.indexing_status === 'failed' && (
+                    <p className="text-sm text-red-600 mt-1">
+                      {pdf.indexing_message}
+                    </p>
+                  )}
                 </div>
                 <div className="ml-4">
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                    Ready
-                  </span>
+                  {getStatusBadge(pdf.indexing_status)}
                 </div>
               </div>
             ))}
