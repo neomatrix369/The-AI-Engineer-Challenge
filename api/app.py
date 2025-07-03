@@ -7,12 +7,13 @@ from pydantic import BaseModel
 # Import OpenAI client for interacting with OpenAI's API
 from openai import OpenAI
 import os
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from dotenv import load_dotenv
 import uuid
 from pathlib import Path
 import json
 import asyncio
+from datetime import datetime
 
 # Import aimakerspace components for PDF processing and indexing
 from aimakerspace.text_utils import PDFLoader, CharacterTextSplitter
@@ -34,6 +35,10 @@ UPLOADS_DIR.mkdir(exist_ok=True)
 INDEXES_DIR = Path("indexes")
 INDEXES_DIR.mkdir(exist_ok=True)
 
+# Create chat history directory
+CHAT_HISTORY_DIR = Path("chat_history")
+CHAT_HISTORY_DIR.mkdir(exist_ok=True)
+
 # Configure CORS (Cross-Origin Resource Sharing) middleware
 app.add_middleware(
     CORSMiddleware,
@@ -53,8 +58,15 @@ class ChatRequest(BaseModel):
 
 class PDFChatRequest(BaseModel):
     user_message: str
-    pdf_file_id: str
+    pdf_file_ids: List[str]  # Support multiple PDFs
+    session_id: Optional[str] = None
     model: Optional[str] = "gpt-4.1-mini"
+
+class ChatSession(BaseModel):
+    session_id: str
+    created_at: str
+    pdf_file_ids: List[str]
+    messages: List[Dict[str, Any]]
 
 class PDFUploadResponse(BaseModel):
     filename: str
@@ -67,11 +79,50 @@ class PDFIndexingStatus(BaseModel):
     status: str  # "pending", "indexing", "completed", "failed"
     message: str
 
+class ChatHistoryResponse(BaseModel):
+    sessions: List[ChatSession]
+
 # In-memory storage for indexing status (in production, use a proper database)
 indexing_status = {}
 
 # In-memory storage for vector databases (in production, use a proper vector store)
 vector_databases = {}
+
+# In-memory storage for chat sessions (in production, use a proper database)
+chat_sessions: Dict[str, ChatSession] = {}
+
+def save_chat_session(session: ChatSession):
+    """Save chat session to file"""
+    try:
+        session_file = CHAT_HISTORY_DIR / f"{session.session_id}.json"
+        with open(session_file, 'w') as f:
+            json.dump(session.dict(), f, indent=2)
+    except Exception as e:
+        print(f"Warning: Failed to save chat session: {e}")
+
+def load_chat_session(session_id: str) -> Optional[ChatSession]:
+    """Load chat session from file"""
+    try:
+        session_file = CHAT_HISTORY_DIR / f"{session_id}.json"
+        if session_file.exists():
+            with open(session_file, 'r') as f:
+                data = json.load(f)
+                return ChatSession(**data)
+    except Exception as e:
+        print(f"Warning: Failed to load chat session: {e}")
+    return None
+
+def get_all_chat_sessions() -> List[ChatSession]:
+    """Get all chat sessions from files"""
+    sessions = []
+    try:
+        for session_file in CHAT_HISTORY_DIR.glob("*.json"):
+            with open(session_file, 'r') as f:
+                data = json.load(f)
+                sessions.append(ChatSession(**data))
+    except Exception as e:
+        print(f"Warning: Failed to load chat sessions: {e}")
+    return sessions
 
 # Define the main chat endpoint that handles POST requests
 @app.post("/api/chat")
@@ -173,30 +224,70 @@ async def index_pdf(file_path: Path, file_id: str):
         }
         raise
 
-# Define PDF chat endpoint with RAG functionality
+# Define PDF chat endpoint with enhanced RAG functionality
 @app.post("/api/chat-pdf")
 async def chat_with_pdf(request: PDFChatRequest):
     try:
-        # Check if the PDF is indexed
-        if request.pdf_file_id not in vector_databases:
-            raise HTTPException(status_code=400, detail="PDF not found or not indexed")
+        # Validate PDF file IDs
+        if not request.pdf_file_ids:
+            raise HTTPException(status_code=400, detail="At least one PDF file ID is required")
         
-        # Get the vector database and chunks for this PDF
-        pdf_data = vector_databases[request.pdf_file_id]
-        vector_db = pdf_data["vector_db"]
-        chunks = pdf_data["chunks"]
+        # Check if all PDFs are indexed
+        missing_pdfs = []
+        for pdf_id in request.pdf_file_ids:
+            if pdf_id not in vector_databases:
+                missing_pdfs.append(pdf_id)
         
-        # Search for relevant chunks
-        relevant_chunks = vector_db.search_by_text(request.user_message, k=3, return_as_text=True)
+        if missing_pdfs:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"PDFs not found or not indexed: {', '.join(missing_pdfs)}"
+            )
         
-        if not relevant_chunks:
-            raise HTTPException(status_code=400, detail="No relevant content found in PDF")
+        # Get or create chat session
+        session_id = request.session_id or str(uuid.uuid4())
+        if session_id not in chat_sessions:
+            chat_sessions[session_id] = ChatSession(
+                session_id=session_id,
+                created_at=datetime.now().isoformat(),
+                pdf_file_ids=request.pdf_file_ids,
+                messages=[]
+            )
+        
+        session = chat_sessions[session_id]
+        
+        # Collect relevant chunks from all PDFs
+        all_relevant_chunks = []
+        pdf_names = []
+        
+        for pdf_id in request.pdf_file_ids:
+            pdf_data = vector_databases[pdf_id]
+            vector_db = pdf_data["vector_db"]
+            
+            # Search for relevant chunks
+            relevant_chunks = vector_db.search_by_text(request.user_message, k=2, return_as_text=True)
+            all_relevant_chunks.extend(relevant_chunks)
+            
+            # Get PDF name for context
+            pdf_files = [f for f in UPLOADS_DIR.glob("*.pdf") if f.name.startswith(pdf_id)]
+            if pdf_files:
+                pdf_name = "_".join(pdf_files[0].name.split("_")[1:])
+                pdf_names.append(pdf_name)
+        
+        if not all_relevant_chunks:
+            raise HTTPException(
+                status_code=400, 
+                detail="No relevant content found in the selected PDFs"
+            )
         
         # Create context from relevant chunks
-        context = "\n\n".join(relevant_chunks)
+        context = "\n\n".join(all_relevant_chunks)
+        pdf_list = ", ".join(pdf_names) if pdf_names else "selected PDFs"
         
         # Create the system message with context
         system_message = f"""You are a helpful AI assistant that answers questions based on the provided PDF content.
+
+PDF Sources: {pdf_list}
 
 PDF Context:
 {context}
@@ -205,7 +296,8 @@ Instructions:
 - Answer questions based ONLY on the information provided in the PDF context above
 - If the question cannot be answered from the PDF content, say "I cannot answer this question based on the provided PDF content"
 - Be accurate and helpful
-- Cite specific parts of the PDF when possible"""
+- Cite specific parts of the PDF when possible
+- If multiple PDFs are referenced, specify which PDF contains the information"""
 
         # Initialize OpenAI client
         api_key = os.getenv("OPENAI_API_KEY")
@@ -214,22 +306,55 @@ Instructions:
         
         client = OpenAI(api_key=api_key)
         
+        # Add user message to session
+        session.messages.append({
+            "role": "user",
+            "content": request.user_message,
+            "timestamp": datetime.now().isoformat()
+        })
+        
         # Create an async generator function for streaming responses
         async def generate():
-            # Create a streaming chat completion request
-            stream = client.chat.completions.create(
-                model=request.model,
-                messages=[
-                    {"role": "system", "content": system_message},
-                    {"role": "user", "content": request.user_message}
-                ],
-                stream=True  # Enable streaming response
-            )
-            
-            # Yield each chunk of the response as it becomes available
-            for chunk in stream:
-                if chunk.choices[0].delta.content is not None:
-                    yield chunk.choices[0].delta.content
+            try:
+                # Create a streaming chat completion request
+                stream = client.chat.completions.create(
+                    model=request.model,
+                    messages=[
+                        {"role": "system", "content": system_message},
+                        {"role": "user", "content": request.user_message}
+                    ],
+                    stream=True  # Enable streaming response
+                )
+                
+                response_content = ""
+                
+                # Yield each chunk of the response as it becomes available
+                for chunk in stream:
+                    if chunk.choices[0].delta.content is not None:
+                        content = chunk.choices[0].delta.content
+                        response_content += content
+                        yield content
+                
+                # Add AI response to session
+                session.messages.append({
+                    "role": "assistant",
+                    "content": response_content,
+                    "timestamp": datetime.now().isoformat()
+                })
+                
+                # Save session
+                save_chat_session(session)
+                
+            except Exception as e:
+                # Add error message to session
+                error_msg = f"Error: {str(e)}"
+                session.messages.append({
+                    "role": "assistant",
+                    "content": error_msg,
+                    "timestamp": datetime.now().isoformat()
+                })
+                save_chat_session(session)
+                yield error_msg
 
         # Return a streaming response to the client
         return StreamingResponse(generate(), media_type="text/plain")
@@ -238,7 +363,29 @@ Instructions:
         raise
     except Exception as e:
         # Handle any errors that occur during processing
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Chat error: {str(e)}")
+
+# Define endpoint to get chat history
+@app.get("/api/chat-history")
+async def get_chat_history():
+    try:
+        sessions = get_all_chat_sessions()
+        return ChatHistoryResponse(sessions=sessions)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get chat history: {str(e)}")
+
+# Define endpoint to get a specific chat session
+@app.get("/api/chat-history/{session_id}")
+async def get_chat_session(session_id: str):
+    try:
+        session = load_chat_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Chat session not found")
+        return session
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get chat session: {str(e)}")
 
 # Define PDF upload endpoint
 @app.post("/api/upload-pdf", response_model=PDFUploadResponse)
@@ -248,6 +395,11 @@ async def upload_pdf(file: UploadFile = File(...)):
         if not file.filename.lower().endswith('.pdf'):
             raise HTTPException(status_code=400, detail="Only PDF files are allowed")
         
+        # Validate file size (10MB limit)
+        content = await file.read()
+        if len(content) > 10 * 1024 * 1024:  # 10MB
+            raise HTTPException(status_code=400, detail="File size too large. Maximum size is 10MB")
+        
         # Generate unique file ID
         file_id = str(uuid.uuid4())
         filename = f"{file_id}_{file.filename}"
@@ -255,7 +407,6 @@ async def upload_pdf(file: UploadFile = File(...)):
         
         # Save the file
         with open(file_path, "wb") as buffer:
-            content = await file.read()
             buffer.write(content)
         
         # Initialize indexing status
