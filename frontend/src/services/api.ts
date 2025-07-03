@@ -6,8 +6,24 @@ interface ChatRequest {
 
 interface PDFChatRequest {
   user_message: string;
-  pdf_file_id: string;
+  pdf_file_ids: string[];
+  session_id?: string;
   model?: string;
+}
+
+interface ChatSession {
+  session_id: string;
+  created_at: string;
+  pdf_file_ids: string[];
+  messages: Array<{
+    role: string;
+    content: string;
+    timestamp: string;
+  }>;
+}
+
+interface ChatHistoryResponse {
+  sessions: ChatSession[];
 }
 
 interface PDFUploadResponse {
@@ -75,6 +91,26 @@ export const api = {
     }
 
     return response.body as ReadableStream;
+  },
+
+  async getChatHistory(): Promise<ChatHistoryResponse> {
+    const response = await fetch(`${API_BASE_URL}/api/chat-history`);
+    
+    if (!response.ok) {
+      throw new Error('Failed to get chat history');
+    }
+
+    return response.json();
+  },
+
+  async getChatSession(sessionId: string): Promise<ChatSession> {
+    const response = await fetch(`${API_BASE_URL}/api/chat-history/${sessionId}`);
+    
+    if (!response.ok) {
+      throw new Error('Failed to get chat session');
+    }
+
+    return response.json();
   },
 
   async uploadPDF(file: File): Promise<PDFUploadResponse> {
