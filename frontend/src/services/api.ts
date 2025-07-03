@@ -203,7 +203,7 @@ export const api = {
       }));
 
       // Merge server and browser files, avoiding duplicates
-      const serverFileIds = new Set(result.pdfs.map(pdf => pdf.file_id));
+      const serverFileIds = new Set(result.pdfs.map((pdf: PDFFile) => pdf.file_id));
       const uniqueBrowserPDFs: PDFFile[] = [];
       for (const pdf of browserPDFs) {
         if (!serverFileIds.has(pdf.file_id)) {
