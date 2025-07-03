@@ -58,6 +58,13 @@ interface HealthResponse {
   readonly: boolean;
 }
 
+interface PreIndexedPDFRequest {
+  file_id: string;
+  filename: string;
+  chunks: string[];
+  embeddings: number[][];
+}
+
 const FALLBACK_API_URL = 'http://localhost:8000';
 if (! process.env.NEXT_PUBLIC_API_URL) {
   console.warn('NEXT_PUBLIC_API_URL is not set, falling back to ' + FALLBACK_API_URL);
@@ -176,9 +183,56 @@ export const api = {
     // If the backend indicates we should use browser storage, store the file locally
     if (result.use_browser_storage && result.file_content) {
       addBrowserStoredFile(result.file_id, result.filename, result.file_content);
+      
+      // Trigger client-side indexing for browser-stored files
+      this.indexBrowserStoredFile(result.file_id, result.filename, result.file_content);
     }
 
     return result;
+  },
+
+  async indexBrowserStoredFile(fileId: string, filename: string, base64Content: string): Promise<void> {
+    try {
+      // Convert base64 to File object
+      const binaryString = atob(base64Content);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      const file = new File([bytes], filename, { type: 'application/pdf' });
+
+      // Import PDFProcessor dynamically to avoid SSR issues
+      const { PDFProcessor } = await import('@/utils/pdfProcessor');
+      
+      // Process the PDF
+      const { chunks, embeddings } = await PDFProcessor.processPDF(file);
+      
+      // Send pre-indexed data to backend
+      const request: PreIndexedPDFRequest = {
+        file_id: fileId,
+        filename: filename,
+        chunks: chunks,
+        embeddings: embeddings
+      };
+
+      const response = await fetch(`${API_BASE_URL}/api/pre-indexed-pdf`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(request),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to index browser-stored PDF: ${errorText}`);
+      }
+
+      console.log(`Successfully indexed browser-stored PDF: ${filename}`);
+    } catch (error) {
+      console.error('Error indexing browser-stored PDF:', error);
+      // Don't throw here as this is called asynchronously
+    }
   },
 
   async listPDFs(): Promise<PDFListResponse> {
@@ -198,7 +252,7 @@ export const api = {
         file_id: fileId,
         original_filename: fileData.filename,
         uploaded_at: fileData.uploaded_at / 1000, // Convert to Unix timestamp
-        indexing_status: 'completed', // Assume completed for browser-stored files
+        indexing_status: 'unknown', // We'll check the actual status
         indexing_message: 'Stored in browser'
       }));
 
@@ -232,6 +286,34 @@ export const api = {
       throw new Error('Health check failed');
     }
     return response.json();
+  },
+
+  async indexExistingBrowserStoredFiles(): Promise<void> {
+    try {
+      const healthResponse = await this.healthCheck();
+      if (!healthResponse.readonly) {
+        return; // Only index browser-stored files in read-only mode
+      }
+
+      const browserFiles = getBrowserStoredFiles();
+      
+      for (const [fileId, fileData] of Object.entries(browserFiles)) {
+        // Check if this file is already indexed on the backend
+        try {
+          const statusResponse = await this.getPDFIndexingStatus(fileId);
+          if (statusResponse.status === 'completed') {
+            continue; // Already indexed
+          }
+        } catch (error) {
+          // File not found on backend, needs indexing
+        }
+        
+        // Index the file
+        await this.indexBrowserStoredFile(fileId, fileData.filename, fileData.content);
+      }
+    } catch (error) {
+      console.error('Error indexing existing browser-stored files:', error);
+    }
   },
 
   // Browser storage utilities

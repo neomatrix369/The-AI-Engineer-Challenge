@@ -187,6 +187,23 @@ Who else is diving into the world of AI? Let's connect! 🌐💡
 
 ## Running the Application
 
+### Environment Setup
+
+Before running the application, you need to set up environment variables:
+
+1. **Backend Environment Variables** (create `.env` file in the root directory):
+   ```bash
+   OPENAI_API_KEY=your_openai_api_key_here
+   ```
+
+2. **Frontend Environment Variables** (create `.env.local` file in the `frontend` directory):
+   ```bash
+   NEXT_PUBLIC_OPENAI_API_KEY=your_openai_api_key_here
+   NEXT_PUBLIC_API_URL=http://localhost:8000
+   ```
+
+   > **Note**: The `NEXT_PUBLIC_OPENAI_API_KEY` is required for client-side PDF processing and indexing when running on read-only environments like Vercel.
+
 ### Backend (API)
 
 To run the backend API, execute the following commands from the **root of the project folder**:
@@ -199,9 +216,9 @@ python api/app.py
 - `export PYTHONPATH=.` ensures the `aimakerspace` library is available for imports.
 - `python api/app.py` starts the FastAPI backend server.
 
-### Frontend (Next.js)
+### Frontend
 
-To run the frontend, execute the following commands from **inside the `frontend` folder**:
+To run the frontend, execute the following commands from the **frontend directory**:
 
 ```bash
 cd frontend
@@ -210,9 +227,11 @@ npm run build
 npx next dev
 ```
 
-- `npm install` installs all dependencies.
-- `npm run build` builds the Next.js app.
-- `npx next dev` starts the development server.
+- `npm install` installs all required dependencies
+- `npm run build` builds the application for production
+- `npx next dev` starts the Next.js development server
+
+The application will be available at `http://localhost:3000` and will connect to the backend at `http://localhost:8000`.
 
 ---
 

@@ -20,6 +20,19 @@ export default function PDFUpload() {
   // Load existing PDFs on component mount
   useEffect(() => {
     loadPDFs();
+    
+    // Index existing browser-stored files if in read-only mode
+    const indexExistingFiles = async () => {
+      try {
+        await api.indexExistingBrowserStoredFiles();
+        // Reload PDFs after indexing to get updated status
+        await loadPDFs();
+      } catch (error) {
+        console.error('Failed to index existing browser-stored files:', error);
+      }
+    };
+    
+    indexExistingFiles();
   }, []);
 
   // Set up polling for indexing status updates

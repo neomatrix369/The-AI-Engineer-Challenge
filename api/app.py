@@ -46,22 +46,16 @@ def is_readonly_environment():
     except (OSError, PermissionError):
         return True
 
+# Check if we're in read-only mode
 IS_READONLY = is_readonly_environment()
 
-# Only create directories if not in read-only mode
-if not IS_READONLY:
-    UPLOADS_DIR.mkdir(exist_ok=True)
-    INDEXES_DIR.mkdir(exist_ok=True)
-    CHAT_HISTORY_DIR.mkdir(exist_ok=True)
-
-# Configure CORS (Cross-Origin Resource Sharing) middleware
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for now
+    allow_origins=[FRONTEND_URL, "http://localhost:3000", "https://localhost:3000"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allow all methods
+    allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["*"]
 )
 
 # Define the data model for chat requests using Pydantic
@@ -98,6 +92,12 @@ class PDFIndexingStatus(BaseModel):
 
 class ChatHistoryResponse(BaseModel):
     sessions: List[ChatSession]
+
+class PreIndexedPDFRequest(BaseModel):
+    file_id: str
+    filename: str
+    chunks: List[str]
+    embeddings: List[List[float]]
 
 # In-memory storage for indexing status (in production, use a proper database)
 indexing_status = {}
@@ -566,6 +566,40 @@ async def get_pdf_indexing_status(file_id: str):
 @app.get("/api/health")
 async def health_check():
     return {"status": "ok", "readonly": IS_READONLY}
+
+@app.post("/api/pre-indexed-pdf")
+async def accept_pre_indexed_pdf(request: PreIndexedPDFRequest):
+    """Accept pre-indexed PDF data from the frontend for browser-stored files"""
+    try:
+        # Create vector database from pre-indexed data
+        vector_db = VectorDatabase()
+        
+        # Convert embeddings to numpy arrays and insert into vector database
+        import numpy as np
+        for chunk, embedding in zip(request.chunks, request.embeddings):
+            vector_db.insert(chunk, np.array(embedding))
+        
+        # Store the vector database in memory for quick access
+        vector_databases[request.file_id] = {
+            "vector_db": vector_db,
+            "chunks": request.chunks
+        }
+        
+        # Update indexing status
+        indexing_status[request.file_id] = {
+            "status": "completed",
+            "message": f"Successfully indexed {len(request.chunks)} text chunks from browser storage"
+        }
+        
+        return {"message": "PDF indexed successfully", "chunks_count": len(request.chunks)}
+        
+    except Exception as e:
+        # Update status to failed
+        indexing_status[request.file_id] = {
+            "status": "failed",
+            "message": f"Indexing failed: {str(e)}"
+        }
+        raise HTTPException(status_code=500, detail=f"Failed to index PDF: {str(e)}")
 
 # Entry point for running the application directly
 if __name__ == "__main__":
