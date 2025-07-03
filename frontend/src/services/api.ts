@@ -31,6 +31,8 @@ interface PDFUploadResponse {
   file_id: string;
   message: string;
   indexing_status: string;
+  use_browser_storage: boolean;
+  file_content?: string; // Base64 encoded file content for browser storage
 }
 
 interface PDFFile {
@@ -51,6 +53,11 @@ interface PDFIndexingStatus {
   message: string;
 }
 
+interface HealthResponse {
+  status: string;
+  readonly: boolean;
+}
+
 const FALLBACK_API_URL = 'http://localhost:8000';
 if (! process.env.NEXT_PUBLIC_API_URL) {
   console.warn('NEXT_PUBLIC_API_URL is not set, falling back to ' + FALLBACK_API_URL);
@@ -58,6 +65,43 @@ if (! process.env.NEXT_PUBLIC_API_URL) {
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || FALLBACK_API_URL;
 
 console.log('FinalAPI_BASE_URL:', API_BASE_URL);
+
+// Browser storage utilities
+const BROWSER_STORAGE_KEY = 'pdf_chat_files';
+
+const getBrowserStoredFiles = (): Record<string, { filename: string; content: string; uploaded_at: number }> => {
+  try {
+    const stored = localStorage.getItem(BROWSER_STORAGE_KEY);
+    return stored ? JSON.parse(stored) : {};
+  } catch (error) {
+    console.error('Failed to get browser stored files:', error);
+    return {};
+  }
+};
+
+const setBrowserStoredFiles = (files: Record<string, { filename: string; content: string; uploaded_at: number }>) => {
+  try {
+    localStorage.setItem(BROWSER_STORAGE_KEY, JSON.stringify(files));
+  } catch (error) {
+    console.error('Failed to set browser stored files:', error);
+  }
+};
+
+const addBrowserStoredFile = (fileId: string, filename: string, content: string) => {
+  const files = getBrowserStoredFiles();
+  files[fileId] = {
+    filename,
+    content,
+    uploaded_at: Date.now()
+  };
+  setBrowserStoredFiles(files);
+};
+
+const removeBrowserStoredFile = (fileId: string) => {
+  const files = getBrowserStoredFiles();
+  delete files[fileId];
+  setBrowserStoredFiles(files);
+};
 
 export const api = {
   async chat(request: ChatRequest): Promise<ReadableStream> {
@@ -127,7 +171,14 @@ export const api = {
       throw new Error(`Failed to upload PDF: ${errorText}`);
     }
 
-    return response.json();
+    const result = await response.json();
+
+    // If the backend indicates we should use browser storage, store the file locally
+    if (result.use_browser_storage && result.file_content) {
+      addBrowserStoredFile(result.file_id, result.filename, result.file_content);
+    }
+
+    return result;
   },
 
   async listPDFs(): Promise<PDFListResponse> {
@@ -137,7 +188,32 @@ export const api = {
       throw new Error('Failed to list PDFs');
     }
 
-    return response.json();
+    const result = await response.json();
+
+    // If we're in read-only mode, also include browser-stored files
+    const healthResponse = await this.healthCheck();
+    if (healthResponse.readonly) {
+      const browserFiles = getBrowserStoredFiles();
+      const browserPDFs: Array<PDFFile> = Object.entries(browserFiles).map(([fileId, fileData]): PDFFile => ({
+        file_id: fileId,
+        original_filename: fileData.filename,
+        uploaded_at: fileData.uploaded_at / 1000, // Convert to Unix timestamp
+        indexing_status: 'completed', // Assume completed for browser-stored files
+        indexing_message: 'Stored in browser'
+      }));
+
+      // Merge server and browser files, avoiding duplicates
+      const serverFileIds = new Set(result.pdfs.map(pdf => pdf.file_id));
+      const uniqueBrowserPDFs: PDFFile[] = [];
+      for (const pdf of browserPDFs) {
+        if (!serverFileIds.has(pdf.file_id)) {
+          uniqueBrowserPDFs.push(pdf);
+        }
+      }
+      result.pdfs = [...result.pdfs, ...uniqueBrowserPDFs];
+    }
+
+    return result;
   },
 
   async getPDFIndexingStatus(fileId: string): Promise<PDFIndexingStatus> {
@@ -150,11 +226,17 @@ export const api = {
     return response.json();
   },
 
-  async healthCheck(): Promise<{ status: string }> {
+  async healthCheck(): Promise<HealthResponse> {
     const response = await fetch(`${API_BASE_URL}/api/health`);
     if (!response.ok) {
       throw new Error('Health check failed');
     }
     return response.json();
   },
+
+  // Browser storage utilities
+  getBrowserStoredFiles,
+  setBrowserStoredFiles,
+  addBrowserStoredFile,
+  removeBrowserStoredFile,
 };

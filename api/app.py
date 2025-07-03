@@ -29,15 +29,30 @@ FRONTEND_URL = os.getenv("NEXT_PUBLIC_API_URL", "http://localhost:3000")
 
 # Create uploads directory if it doesn't exist
 UPLOADS_DIR = Path("uploads")
-UPLOADS_DIR.mkdir(exist_ok=True)
-
-# Create indexes directory for storing vector databases
 INDEXES_DIR = Path("indexes")
-INDEXES_DIR.mkdir(exist_ok=True)
-
-# Create chat history directory
 CHAT_HISTORY_DIR = Path("chat_history")
-CHAT_HISTORY_DIR.mkdir(exist_ok=True)
+
+# Check if we're in a read-only environment (like Vercel)
+def is_readonly_environment():
+    """Check if we're in a read-only environment like Vercel"""
+    try:
+        # Try to create a test file
+        test_file = UPLOADS_DIR / "test_write.txt"
+        UPLOADS_DIR.mkdir(exist_ok=True)
+        with open(test_file, 'w') as f:
+            f.write("test")
+        os.remove(test_file)
+        return False
+    except (OSError, PermissionError):
+        return True
+
+IS_READONLY = is_readonly_environment()
+
+# Only create directories if not in read-only mode
+if not IS_READONLY:
+    UPLOADS_DIR.mkdir(exist_ok=True)
+    INDEXES_DIR.mkdir(exist_ok=True)
+    CHAT_HISTORY_DIR.mkdir(exist_ok=True)
 
 # Configure CORS (Cross-Origin Resource Sharing) middleware
 app.add_middleware(
@@ -73,6 +88,8 @@ class PDFUploadResponse(BaseModel):
     file_id: str
     message: str
     indexing_status: str
+    use_browser_storage: bool = False
+    file_content: Optional[str] = None  # Base64 encoded file content for browser storage
 
 class PDFIndexingStatus(BaseModel):
     file_id: str
@@ -91,8 +108,16 @@ vector_databases = {}
 # In-memory storage for chat sessions (in production, use a proper database)
 chat_sessions: Dict[str, ChatSession] = {}
 
+# In-memory storage for files when in read-only mode
+memory_stored_files: Dict[str, bytes] = {}
+
 def save_chat_session(session: ChatSession):
-    """Save chat session to file"""
+    """Save chat session to file or memory"""
+    if IS_READONLY:
+        # Store in memory for read-only environments
+        chat_sessions[session.session_id] = session
+        return
+    
     try:
         session_file = CHAT_HISTORY_DIR / f"{session.session_id}.json"
         with open(session_file, 'w') as f:
@@ -101,7 +126,10 @@ def save_chat_session(session: ChatSession):
         print(f"Warning: Failed to save chat session: {e}")
 
 def load_chat_session(session_id: str) -> Optional[ChatSession]:
-    """Load chat session from file"""
+    """Load chat session from file or memory"""
+    if IS_READONLY:
+        return chat_sessions.get(session_id)
+    
     try:
         session_file = CHAT_HISTORY_DIR / f"{session_id}.json"
         if session_file.exists():
@@ -113,7 +141,10 @@ def load_chat_session(session_id: str) -> Optional[ChatSession]:
     return None
 
 def get_all_chat_sessions() -> List[ChatSession]:
-    """Get all chat sessions from files"""
+    """Get all chat sessions from files or memory"""
+    if IS_READONLY:
+        return list(chat_sessions.values())
+    
     sessions = []
     try:
         for session_file in CHAT_HISTORY_DIR.glob("*.json"):
@@ -161,7 +192,7 @@ async def chat(request: ChatRequest):
         # Handle any errors that occur during processing
         raise HTTPException(status_code=500, detail=str(e))
 
-async def index_pdf(file_path: Path, file_id: str):
+async def index_pdf(file_content: bytes, file_id: str, filename: str):
     """Index a PDF file using the aimakerspace library"""
     try:
         # Update status to indexing
@@ -170,8 +201,22 @@ async def index_pdf(file_path: Path, file_id: str):
             "message": "Processing PDF and creating embeddings..."
         }
         
+        # Create a temporary file path for processing
+        if IS_READONLY:
+            # Store in memory
+            memory_stored_files[file_id] = file_content
+            temp_file_path = f"/tmp/{file_id}_{filename}"
+            with open(temp_file_path, 'wb') as f:
+                f.write(file_content)
+        else:
+            # Store on disk
+            file_path = UPLOADS_DIR / f"{file_id}_{filename}"
+            with open(file_path, "wb") as f:
+                f.write(file_content)
+            temp_file_path = str(file_path)
+        
         # Load PDF text
-        pdf_loader = PDFLoader(str(file_path))
+        pdf_loader = PDFLoader(temp_file_path)
         documents = pdf_loader.load_documents()
         
         if not documents:
@@ -197,8 +242,7 @@ async def index_pdf(file_path: Path, file_id: str):
             "chunks": chunks
         }
         
-        # Save the vector database (in a real app, you'd use a proper vector store)
-        # For now, we'll store metadata about the indexing
+        # Save the vector database metadata
         index_data = {
             "file_id": file_id,
             "chunks_count": len(chunks),
@@ -206,15 +250,23 @@ async def index_pdf(file_path: Path, file_id: str):
             "status": "completed"
         }
         
-        index_file = INDEXES_DIR / f"{file_id}.json"
-        with open(index_file, 'w') as f:
-            json.dump(index_data, f)
+        if not IS_READONLY:
+            index_file = INDEXES_DIR / f"{file_id}.json"
+            with open(index_file, 'w') as f:
+                json.dump(index_data, f)
         
         # Update status to completed
         indexing_status[file_id] = {
             "status": "completed",
             "message": f"Successfully indexed {len(chunks)} text chunks"
         }
+        
+        # Clean up temp file if in read-only mode
+        if IS_READONLY:
+            try:
+                os.remove(temp_file_path)
+            except:
+                pass
         
     except Exception as e:
         # Update status to failed
@@ -269,10 +321,14 @@ async def chat_with_pdf(request: PDFChatRequest):
             all_relevant_chunks.extend(relevant_chunks)
             
             # Get PDF name for context
-            pdf_files = [f for f in UPLOADS_DIR.glob("*.pdf") if f.name.startswith(pdf_id)]
-            if pdf_files:
-                pdf_name = "_".join(pdf_files[0].name.split("_")[1:])
-                pdf_names.append(pdf_name)
+            if IS_READONLY:
+                # In read-only mode, we don't have file paths, so use the ID
+                pdf_names.append(f"PDF_{pdf_id[:8]}")
+            else:
+                pdf_files = [f for f in UPLOADS_DIR.glob("*.pdf") if f.name.startswith(pdf_id)]
+                if pdf_files:
+                    pdf_name = "_".join(pdf_files[0].name.split("_")[1:])
+                    pdf_names.append(pdf_name)
         
         if not all_relevant_chunks:
             raise HTTPException(
@@ -402,28 +458,43 @@ async def upload_pdf(file: UploadFile = File(...)):
         
         # Generate unique file ID
         file_id = str(uuid.uuid4())
-        filename = f"{file_id}_{file.filename}"
-        file_path = UPLOADS_DIR / filename
+        filename = file.filename
         
-        # Save the file
-        with open(file_path, "wb") as buffer:
-            buffer.write(content)
-        
-        # Initialize indexing status
-        indexing_status[file_id] = {
-            "status": "pending",
-            "message": "File uploaded, indexing will start shortly..."
-        }
-        
-        # Start indexing in the background
-        asyncio.create_task(index_pdf(file_path, file_id))
-        
-        return PDFUploadResponse(
-            filename=file.filename,
-            file_id=file_id,
-            message="PDF uploaded successfully",
-            indexing_status="pending"
-        )
+        if IS_READONLY:
+            # In read-only mode, return the file content for browser storage
+            import base64
+            file_content_b64 = base64.b64encode(content).decode('utf-8')
+            
+            return PDFUploadResponse(
+                filename=filename,
+                file_id=file_id,
+                message="PDF uploaded successfully (stored in browser)",
+                indexing_status="pending",
+                use_browser_storage=True,
+                file_content=file_content_b64
+            )
+        else:
+            # Save the file to disk
+            file_path = UPLOADS_DIR / f"{file_id}_{filename}"
+            with open(file_path, "wb") as buffer:
+                buffer.write(content)
+            
+            # Initialize indexing status
+            indexing_status[file_id] = {
+                "status": "pending",
+                "message": "File uploaded, indexing will start shortly..."
+            }
+            
+            # Start indexing in the background
+            asyncio.create_task(index_pdf(content, file_id, filename))
+            
+            return PDFUploadResponse(
+                filename=filename,
+                file_id=file_id,
+                message="PDF uploaded successfully",
+                indexing_status="pending",
+                use_browser_storage=False
+            )
     
     except HTTPException:
         raise
@@ -435,25 +506,38 @@ async def upload_pdf(file: UploadFile = File(...)):
 async def list_pdfs():
     try:
         pdf_files = []
-        for file_path in UPLOADS_DIR.glob("*.pdf"):
-            # Extract original filename from stored filename (remove UUID prefix)
-            stored_name = file_path.name
-            original_name = "_".join(stored_name.split("_")[1:])  # Remove UUID prefix
-            file_id = stored_name.split("_")[0]
-            
-            # Get indexing status
-            status_info = indexing_status.get(file_id, {
-                "status": "unknown",
-                "message": "Status unknown"
-            })
-            
-            pdf_files.append({
-                "file_id": file_id,
-                "original_filename": original_name,
-                "uploaded_at": file_path.stat().st_mtime,
-                "indexing_status": status_info["status"],
-                "indexing_message": status_info["message"]
-            })
+        
+        if IS_READONLY:
+            # In read-only mode, return files from memory
+            for file_id, content in memory_stored_files.items():
+                pdf_files.append({
+                    "file_id": file_id,
+                    "original_filename": f"PDF_{file_id[:8]}.pdf",
+                    "uploaded_at": datetime.now().timestamp(),
+                    "indexing_status": "unknown",
+                    "indexing_message": "File in browser storage"
+                })
+        else:
+            # List files from disk
+            for file_path in UPLOADS_DIR.glob("*.pdf"):
+                # Extract original filename from stored filename (remove UUID prefix)
+                stored_name = file_path.name
+                original_name = "_".join(stored_name.split("_")[1:])  # Remove UUID prefix
+                file_id = stored_name.split("_")[0]
+                
+                # Get indexing status
+                status_info = indexing_status.get(file_id, {
+                    "status": "unknown",
+                    "message": "Status unknown"
+                })
+                
+                pdf_files.append({
+                    "file_id": file_id,
+                    "original_filename": original_name,
+                    "uploaded_at": file_path.stat().st_mtime,
+                    "indexing_status": status_info["status"],
+                    "indexing_message": status_info["message"]
+                })
         
         return {"pdfs": pdf_files}
     
@@ -481,7 +565,7 @@ async def get_pdf_indexing_status(file_id: str):
 # Define a health check endpoint to verify API status
 @app.get("/api/health")
 async def health_check():
-    return {"status": "ok"}
+    return {"status": "ok", "readonly": IS_READONLY}
 
 # Entry point for running the application directly
 if __name__ == "__main__":
