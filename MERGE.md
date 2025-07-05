@@ -19,6 +19,8 @@ This document provides instructions for merging the `feature/improved-rag-step4`
 - ✅ **JSON File Support**: Added comprehensive JSON file processing with hierarchical flattening
 - ✅ **Domain-Specific Guidance**: Added contextual guidance for each file type with helpful tips and examples
 - ✅ **Collapsible Guidance**: Users can hide guidance after reading to focus on chatting
+- ✅ **Enhanced CSV Processing**: Added proper CSV parsing to frontend matching backend capabilities
+- ✅ **README Accuracy**: Updated README to truthfully reflect all processing capabilities
 
 ## 🎨 What This Means for Users
 
@@ -54,6 +56,8 @@ Your app now speaks the language of **all the files**! 📁✨
      - Updated all UI text to reflect multi-file support
      - Exported shared interfaces from API service
      - Updated documentation to reflect multi-format support
+     - Added proper CSV processing to frontend matching backend capabilities
+     - Updated README to accurately reflect all processing capabilities
      
      ## 🧪 Testing Checklist
      - [ ] Test file upload with different formats (PDF, MD, TXT, CSV, JSON)
@@ -76,6 +80,9 @@ Your app now speaks the language of **all the files**! 📁✨
      - [ ] Test collapsible guidance functionality (show/hide toggle)
      - [ ] Verify guidance appears when files are selected in Chat with File mode
      - [ ] Test guidance content for different file type combinations
+     - [ ] Test CSV processing with proper parsing (headers, rows, quoted values)
+     - [ ] Verify frontend CSV processing matches backend capabilities
+     - [ ] Verify README claims are accurate and truthful
      ```
 
 3. **Review and Merge:**
@@ -103,6 +110,8 @@ Your app now speaks the language of **all the files**! 📁✨
      - Updated all UI text to reflect multi-file support
      - Exported shared interfaces from API service
      - Updated documentation to reflect multi-format support
+     - Added proper CSV processing to frontend matching backend capabilities
+     - Updated README to accurately reflect all processing capabilities
      
      ## 🧪 Testing Checklist
      - [ ] Test file upload with different formats (PDF, MD, TXT, CSV, JSON)
@@ -124,7 +133,10 @@ Your app now speaks the language of **all the files**! 📁✨
      - [ ] Test domain-specific guidance for each file type (PDF, CSV, JSON, Text)
      - [ ] Test collapsible guidance functionality (show/hide toggle)
      - [ ] Verify guidance appears when files are selected in Chat with File mode
-     - [ ] Test guidance content for different file type combinations" \
+     - [ ] Test guidance content for different file type combinations
+     - [ ] Test CSV processing with proper parsing (headers, rows, quoted values)
+     - [ ] Verify frontend CSV processing matches backend capabilities
+     - [ ] Verify README claims are accurate and truthful" \
      --base main \
      --head feature/improved-rag-step4
    ```
@@ -204,6 +216,8 @@ To test your newly merged multi-file support:
 - **Comprehensive Format Support**: Now supports PDF, MD, TXT, CSV, and JSON files
 - **Domain-Specific Guidance**: Contextual help for each file type with tips and examples
 - **Collapsible UI**: Users can hide guidance to focus on chatting
+- **Accurate Documentation**: README truthfully reflects all processing capabilities
+- **Consistent Processing**: Frontend and backend CSV processing are now aligned
 
 ---
 
