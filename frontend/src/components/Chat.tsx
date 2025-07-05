@@ -57,11 +57,11 @@ export default function Chat() {
 
   const loadPDFs = async () => {
     try {
-      const response = await api.listPDFs();
-      setPdfs(response.pdfs);
+      const response = await api.listFiles();
+      setPdfs(response.files);
     } catch (error) {
-      console.error('Failed to load PDFs:', error);
-      setError('Failed to load PDFs');
+      console.error('Failed to load files:', error);
+      setError('Failed to load files');
     }
   };
 
@@ -119,8 +119,8 @@ export default function Chat() {
       let stream: ReadableStream;
 
       if (chatMode === 'pdf' && selectedPDFs.length > 0) {
-        // Chat with PDF using RAG
-        stream = await api.chatWithPDF({
+        // Chat with files using RAG
+        stream = await api.chatWithFile({
           user_message: userMessage,
           pdf_file_ids: selectedPDFs,
           session_id: currentSessionId,

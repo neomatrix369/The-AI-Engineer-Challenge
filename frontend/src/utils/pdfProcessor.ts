@@ -43,6 +43,19 @@ export class PDFProcessor {
   }
 
   /**
+   * Extract text from markdown or text files
+   */
+  static async extractTextFromFile(file: File): Promise<string[]> {
+    try {
+      const text = await file.text();
+      return [text];
+    } catch (error) {
+      console.error('Error extracting text from file:', error);
+      throw new Error('Failed to extract text from file');
+    }
+  }
+
+  /**
    * Split text into chunks similar to the backend CharacterTextSplitter
    */
   static splitTextIntoChunks(texts: string[], chunkSize: number = 1000, chunkOverlap: number = 200): string[] {
@@ -116,24 +129,35 @@ export class PDFProcessor {
   }
 
   /**
-   * Process a PDF file completely: extract text, split into chunks, and create embeddings
+   * Process any supported file type: PDF, Markdown, or Text
    */
-  static async processPDF(file: File): Promise<{
+  static async processFile(file: File): Promise<{
     chunks: string[];
     embeddings: number[][];
   }> {
-    // Extract text from PDF
-    const textChunks = await this.extractTextFromPDF(file);
+    const fileType = file.name.toLowerCase().split('.').pop();
+    
+    let textChunks: string[];
+    
+    if (fileType === 'pdf') {
+      // Extract text from PDF
+      textChunks = await this.extractTextFromPDF(file);
+    } else if (fileType === 'md' || fileType === 'txt') {
+      // Extract text from markdown or text files
+      textChunks = await this.extractTextFromFile(file);
+    } else {
+      throw new Error(`Unsupported file type: ${fileType}`);
+    }
     
     if (textChunks.length === 0) {
-      throw new Error('No text could be extracted from the PDF');
+      throw new Error('No text could be extracted from the file');
     }
     
     // Split text into chunks
     const chunks = this.splitTextIntoChunks(textChunks);
     
     if (chunks.length === 0) {
-      throw new Error('No text chunks could be created from the PDF');
+      throw new Error('No text chunks could be created from the file');
     }
     
     // Create embeddings
@@ -143,5 +167,16 @@ export class PDFProcessor {
       chunks,
       embeddings
     };
+  }
+
+  /**
+   * Process a PDF file completely: extract text, split into chunks, and create embeddings
+   * @deprecated Use processFile instead
+   */
+  static async processPDF(file: File): Promise<{
+    chunks: string[];
+    embeddings: number[][];
+  }> {
+    return this.processFile(file);
   }
 } 

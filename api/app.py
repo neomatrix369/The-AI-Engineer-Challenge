@@ -58,6 +58,37 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# File type detection and validation
+SUPPORTED_EXTENSIONS = {'.pdf', '.md', '.txt'}
+
+def get_file_type(filename: str) -> str:
+    """Detect file type based on extension"""
+    ext = filename.lower().split('.')[-1]
+    if ext == 'pdf':
+        return 'pdf'
+    elif ext in ['md', 'txt']:
+        return 'text'
+    return 'unknown'
+
+def is_supported_file(filename: str) -> bool:
+    """Check if file type is supported"""
+    ext = '.' + filename.lower().split('.')[-1]
+    return ext in SUPPORTED_EXTENSIONS
+
+def extract_text_content(file_content: bytes) -> List[str]:
+    """Extract text content from markdown or text files"""
+    try:
+        text = file_content.decode('utf-8')
+        # For markdown files, we can keep the structure for better chunking
+        return [text]
+    except UnicodeDecodeError:
+        # Try with different encoding if UTF-8 fails
+        try:
+            text = file_content.decode('latin-1')
+            return [text]
+        except:
+            raise ValueError("Could not decode file content")
+
 # Define the data model for chat requests using Pydantic
 # This ensures incoming request data is properly validated
 class ChatRequest(BaseModel):
@@ -192,39 +223,56 @@ async def chat(request: ChatRequest):
         # Handle any errors that occur during processing
         raise HTTPException(status_code=500, detail=str(e))
 
-async def index_pdf(file_content: bytes, file_id: str, filename: str):
-    """Index a PDF file using the aimakerspace library"""
+async def index_file(file_content: bytes, file_id: str, filename: str):
+    """Index a file using the aimakerspace library"""
     try:
         # Update status to indexing
         indexing_status[file_id] = {
             "status": "indexing",
-            "message": "Processing PDF and creating embeddings..."
+            "message": "Processing file and creating embeddings..."
         }
         
-        # Create a temporary file path for processing
-        if IS_READONLY:
-            # Store in memory
-            memory_stored_files[file_id] = file_content
-            temp_file_path = f"/tmp/{file_id}_{filename}"
-            with open(temp_file_path, 'wb') as f:
-                f.write(file_content)
+        file_type = get_file_type(filename)
+        
+        if file_type == 'pdf':
+            # Handle PDF files
+            if IS_READONLY:
+                # Store in memory
+                memory_stored_files[file_id] = file_content
+                temp_file_path = f"/tmp/{file_id}_{filename}"
+                with open(temp_file_path, 'wb') as f:
+                    f.write(file_content)
+            else:
+                # Store on disk
+                file_path = UPLOADS_DIR / f"{file_id}_{filename}"
+                with open(file_path, "wb") as f:
+                    f.write(file_content)
+                temp_file_path = str(file_path)
+            
+            # Load PDF text
+            pdf_loader = PDFLoader(temp_file_path)
+            documents = pdf_loader.load_documents()
+            
+            if not documents:
+                raise ValueError("No text could be extracted from the PDF")
+            
+            # Split text into chunks
+            splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+            chunks = splitter.split_texts(documents)
+            
+        elif file_type == 'text':
+            # Handle markdown and text files
+            documents = extract_text_content(file_content)
+            
+            if not documents:
+                raise ValueError("No text could be extracted from the file")
+            
+            # Split text into chunks
+            splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+            chunks = splitter.split_texts(documents)
+            
         else:
-            # Store on disk
-            file_path = UPLOADS_DIR / f"{file_id}_{filename}"
-            with open(file_path, "wb") as f:
-                f.write(file_content)
-            temp_file_path = str(file_path)
-        
-        # Load PDF text
-        pdf_loader = PDFLoader(temp_file_path)
-        documents = pdf_loader.load_documents()
-        
-        if not documents:
-            raise ValueError("No text could be extracted from the PDF")
-        
-        # Split text into chunks
-        splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-        chunks = splitter.split_texts(documents)
+            raise ValueError(f"Unsupported file type: {file_type}")
         
         # Update status
         indexing_status[file_id] = {
@@ -251,8 +299,8 @@ async def index_pdf(file_content: bytes, file_id: str, filename: str):
         }
         
         if not IS_READONLY:
-            index_file = INDEXES_DIR / f"{file_id}.json"
-            with open(index_file, 'w') as f:
+            index_file_path = INDEXES_DIR / f"{file_id}.json"
+            with open(index_file_path, 'w') as f:
                 json.dump(index_data, f)
         
         # Update status to completed
@@ -262,7 +310,7 @@ async def index_pdf(file_content: bytes, file_id: str, filename: str):
         }
         
         # Clean up temp file if in read-only mode
-        if IS_READONLY:
+        if IS_READONLY and file_type == 'pdf':
             try:
                 os.remove(temp_file_path)
             except:
@@ -277,23 +325,23 @@ async def index_pdf(file_content: bytes, file_id: str, filename: str):
         raise
 
 # Define PDF chat endpoint with enhanced RAG functionality
-@app.post("/api/chat-pdf")
-async def chat_with_pdf(request: PDFChatRequest):
+@app.post("/api/chat-file")
+async def chat_with_file(request: PDFChatRequest):
     try:
-        # Validate PDF file IDs
+        # Validate file IDs
         if not request.pdf_file_ids:
-            raise HTTPException(status_code=400, detail="At least one PDF file ID is required")
+            raise HTTPException(status_code=400, detail="At least one file ID is required")
         
-        # Check if all PDFs are indexed
-        missing_pdfs = []
-        for pdf_id in request.pdf_file_ids:
-            if pdf_id not in vector_databases:
-                missing_pdfs.append(pdf_id)
+        # Check if all files are indexed
+        missing_files = []
+        for file_id in request.pdf_file_ids:
+            if file_id not in vector_databases:
+                missing_files.append(file_id)
         
-        if missing_pdfs:
+        if missing_files:
             raise HTTPException(
                 status_code=400, 
-                detail=f"PDFs not found or not indexed: {', '.join(missing_pdfs)}"
+                detail=f"Files not found or not indexed: {', '.join(missing_files)}"
             )
         
         # Get or create chat session
@@ -308,52 +356,61 @@ async def chat_with_pdf(request: PDFChatRequest):
         
         session = chat_sessions[session_id]
         
-        # Collect relevant chunks from all PDFs
+        # Collect relevant chunks from all files
         all_relevant_chunks = []
-        pdf_names = []
+        file_names = []
         
-        for pdf_id in request.pdf_file_ids:
-            pdf_data = vector_databases[pdf_id]
-            vector_db = pdf_data["vector_db"]
+        for file_id in request.pdf_file_ids:
+            file_data = vector_databases[file_id]
+            vector_db = file_data["vector_db"]
             
             # Search for relevant chunks
             relevant_chunks = vector_db.search_by_text(request.user_message, k=2, return_as_text=True)
             all_relevant_chunks.extend(relevant_chunks)
             
-            # Get PDF name for context
+            # Get file name for context
             if IS_READONLY:
                 # In read-only mode, we don't have file paths, so use the ID
-                pdf_names.append(f"PDF_{pdf_id[:8]}")
+                file_names.append(f"File_{file_id[:8]}")
             else:
-                pdf_files = [f for f in UPLOADS_DIR.glob("*.pdf") if f.name.startswith(pdf_id)]
-                if pdf_files:
-                    pdf_name = "_".join(pdf_files[0].name.split("_")[1:])
-                    pdf_names.append(pdf_name)
+                # Find the file by ID
+                found_file = None
+                for extension in SUPPORTED_EXTENSIONS:
+                    files = [f for f in UPLOADS_DIR.glob(f"*{extension}") if f.name.startswith(file_id)]
+                    if files:
+                        found_file = files[0]
+                        break
+                
+                if found_file:
+                    file_name = "_".join(found_file.name.split("_")[1:])
+                    file_names.append(file_name)
+                else:
+                    file_names.append(f"File_{file_id[:8]}")
         
         if not all_relevant_chunks:
             raise HTTPException(
                 status_code=400, 
-                detail="No relevant content found in the selected PDFs"
+                detail="No relevant content found in the selected files"
             )
         
         # Create context from relevant chunks
         context = "\n\n".join(all_relevant_chunks)
-        pdf_list = ", ".join(pdf_names) if pdf_names else "selected PDFs"
+        file_list = ", ".join(file_names) if file_names else "selected files"
         
         # Create the system message with context
-        system_message = f"""You are a helpful AI assistant that answers questions based on the provided PDF content.
+        system_message = f"""You are a helpful AI assistant that answers questions based on the provided file content.
 
-PDF Sources: {pdf_list}
+File Sources: {file_list}
 
-PDF Context:
+File Context:
 {context}
 
 Instructions:
-- Answer questions based ONLY on the information provided in the PDF context above
-- If the question cannot be answered from the PDF content, say "I cannot answer this question based on the provided PDF content"
+- Answer questions based ONLY on the information provided in the file context above
+- If the question cannot be answered from the file content, say "I cannot answer this question based on the provided file content"
 - Be accurate and helpful
-- Cite specific parts of the PDF when possible
-- If multiple PDFs are referenced, specify which PDF contains the information"""
+- Cite specific parts of the files when possible
+- If multiple files are referenced, specify which file contains the information"""
 
         # Initialize OpenAI client
         api_key = os.getenv("OPENAI_API_KEY")
@@ -443,13 +500,17 @@ async def get_chat_session(session_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get chat session: {str(e)}")
 
-# Define PDF upload endpoint
-@app.post("/api/upload-pdf", response_model=PDFUploadResponse)
-async def upload_pdf(file: UploadFile = File(...)):
+# Define file upload endpoint
+@app.post("/api/upload-file", response_model=PDFUploadResponse)
+async def upload_file(file: UploadFile = File(...)):
     try:
         # Validate file type
-        if not file.filename.lower().endswith('.pdf'):
-            raise HTTPException(status_code=400, detail="Only PDF files are allowed")
+        if not is_supported_file(file.filename):
+            supported_extensions = ', '.join(SUPPORTED_EXTENSIONS)
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Unsupported file type. Supported types: {supported_extensions}"
+            )
         
         # Validate file size (10MB limit)
         content = await file.read()
@@ -468,7 +529,7 @@ async def upload_pdf(file: UploadFile = File(...)):
             return PDFUploadResponse(
                 filename=filename,
                 file_id=file_id,
-                message="PDF uploaded successfully (stored in browser)",
+                message=f"{get_file_type(filename).upper()} uploaded successfully (stored in browser)",
                 indexing_status="pending",
                 use_browser_storage=True,
                 file_content=file_content_b64
@@ -486,12 +547,12 @@ async def upload_pdf(file: UploadFile = File(...)):
             }
             
             # Start indexing in the background
-            asyncio.create_task(index_pdf(content, file_id, filename))
+            asyncio.create_task(index_file(content, file_id, filename))
             
             return PDFUploadResponse(
                 filename=filename,
                 file_id=file_id,
-                message="PDF uploaded successfully",
+                message=f"{get_file_type(filename).upper()} uploaded successfully",
                 indexing_status="pending",
                 use_browser_storage=False
             )
@@ -499,58 +560,59 @@ async def upload_pdf(file: UploadFile = File(...)):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to upload PDF: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}")
 
-# Define endpoint to list uploaded PDFs
-@app.get("/api/pdfs")
-async def list_pdfs():
+# Define endpoint to list uploaded files
+@app.get("/api/files")
+async def list_files():
     try:
-        pdf_files = []
+        files = []
         
         if IS_READONLY:
             # In read-only mode, return files from memory
             for file_id, content in memory_stored_files.items():
-                pdf_files.append({
+                files.append({
                     "file_id": file_id,
-                    "original_filename": f"PDF_{file_id[:8]}.pdf",
+                    "original_filename": f"File_{file_id[:8]}.pdf",  # Fallback name
                     "uploaded_at": datetime.now().timestamp(),
                     "indexing_status": "unknown",
                     "indexing_message": "File in browser storage"
                 })
         else:
-            # List files from disk
-            for file_path in UPLOADS_DIR.glob("*.pdf"):
-                # Extract original filename from stored filename (remove UUID prefix)
-                stored_name = file_path.name
-                original_name = "_".join(stored_name.split("_")[1:])  # Remove UUID prefix
-                file_id = stored_name.split("_")[0]
-                
-                # Get indexing status
-                status_info = indexing_status.get(file_id, {
-                    "status": "unknown",
-                    "message": "Status unknown"
-                })
-                
-                pdf_files.append({
-                    "file_id": file_id,
-                    "original_filename": original_name,
-                    "uploaded_at": file_path.stat().st_mtime,
-                    "indexing_status": status_info["status"],
-                    "indexing_message": status_info["message"]
-                })
+            # List files from disk - support multiple extensions
+            for extension in SUPPORTED_EXTENSIONS:
+                for file_path in UPLOADS_DIR.glob(f"*{extension}"):
+                    # Extract original filename from stored filename (remove UUID prefix)
+                    stored_name = file_path.name
+                    original_name = "_".join(stored_name.split("_")[1:])  # Remove UUID prefix
+                    file_id = stored_name.split("_")[0]
+                    
+                    # Get indexing status
+                    status_info = indexing_status.get(file_id, {
+                        "status": "unknown",
+                        "message": "Status unknown"
+                    })
+                    
+                    files.append({
+                        "file_id": file_id,
+                        "original_filename": original_name,
+                        "uploaded_at": file_path.stat().st_mtime,
+                        "indexing_status": status_info["status"],
+                        "indexing_message": status_info["message"]
+                    })
         
-        return {"pdfs": pdf_files}
+        return {"files": files}
     
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to list PDFs: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to list files: {str(e)}")
 
-# Define endpoint to get indexing status for a specific PDF
-@app.get("/api/pdfs/{file_id}/status")
-async def get_pdf_indexing_status(file_id: str):
+# Define endpoint to get indexing status for a specific file
+@app.get("/api/files/{file_id}/status")
+async def get_file_indexing_status(file_id: str):
     try:
         status_info = indexing_status.get(file_id, {
             "status": "unknown",
-            "message": "PDF not found"
+            "message": "File not found"
         })
         
         return PDFIndexingStatus(
@@ -567,9 +629,9 @@ async def get_pdf_indexing_status(file_id: str):
 async def health_check():
     return {"status": "ok", "readonly": IS_READONLY}
 
-@app.post("/api/pre-indexed-pdf")
-async def accept_pre_indexed_pdf(request: PreIndexedPDFRequest):
-    """Accept pre-indexed PDF data from the frontend for browser-stored files"""
+@app.post("/api/pre-indexed-file")
+async def accept_pre_indexed_file(request: PreIndexedPDFRequest):
+    """Accept pre-indexed file data from the frontend for browser-stored files"""
     try:
         # Create vector database from pre-indexed data
         vector_db = VectorDatabase()
@@ -591,7 +653,7 @@ async def accept_pre_indexed_pdf(request: PreIndexedPDFRequest):
             "message": f"Successfully indexed {len(request.chunks)} text chunks from browser storage"
         }
         
-        return {"message": "PDF indexed successfully", "chunks_count": len(request.chunks)}
+        return {"message": "File indexed successfully", "chunks_count": len(request.chunks)}
         
     except Exception as e:
         # Update status to failed
@@ -599,7 +661,7 @@ async def accept_pre_indexed_pdf(request: PreIndexedPDFRequest):
             "status": "failed",
             "message": f"Indexing failed: {str(e)}"
         }
-        raise HTTPException(status_code=500, detail=f"Failed to index PDF: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to index file: {str(e)}")
 
 # Entry point for running the application directly
 if __name__ == "__main__":

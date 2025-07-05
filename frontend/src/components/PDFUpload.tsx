@@ -11,22 +11,22 @@ interface PDFFile {
   indexing_message: string;
 }
 
-export default function PDFUpload() {
-  const [pdfs, setPdfs] = useState<PDFFile[]>([]);
+export default function FileUpload() {
+  const [files, setFiles] = useState<PDFFile[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState('');
   const [isLoading, setIsLoading] = useState(true);
 
-  // Load existing PDFs on component mount
+  // Load existing files on component mount
   useEffect(() => {
-    loadPDFs();
+    loadFiles();
     
     // Index existing browser-stored files if in read-only mode
     const indexExistingFiles = async () => {
       try {
         await api.indexExistingBrowserStoredFiles();
-        // Reload PDFs after indexing to get updated status
-        await loadPDFs();
+        // Reload files after indexing to get updated status
+        await loadFiles();
       } catch (error) {
         console.error('Failed to index existing browser-stored files:', error);
       }
@@ -38,27 +38,27 @@ export default function PDFUpload() {
   // Set up polling for indexing status updates
   useEffect(() => {
     const interval = setInterval(() => {
-      // Only poll if there are PDFs that are still being indexed
-      const hasIndexingPDFs = pdfs.some(pdf => 
-        pdf.indexing_status === 'pending' || pdf.indexing_status === 'indexing'
+      // Only poll if there are files that are still being indexed
+      const hasIndexingFiles = files.some(file => 
+        file.indexing_status === 'pending' || file.indexing_status === 'indexing'
       );
       
-      if (hasIndexingPDFs) {
-        loadPDFs();
+      if (hasIndexingFiles) {
+        loadFiles();
       }
     }, 2000); // Poll every 2 seconds
 
     return () => clearInterval(interval);
-  }, [pdfs]);
+  }, [files]);
 
-  const loadPDFs = async () => {
+  const loadFiles = async () => {
     try {
       setIsLoading(true);
-      const response = await api.listPDFs();
-      setPdfs(response.pdfs);
+      const response = await api.listFiles();
+      setFiles(response.files);
     } catch (error) {
-      console.error('Failed to load PDFs:', error);
-      setUploadMessage('Failed to load existing PDFs');
+      console.error('Failed to load files:', error);
+      setUploadMessage('Failed to load existing files');
     } finally {
       setIsLoading(false);
     }
@@ -69,8 +69,10 @@ export default function PDFUpload() {
     if (!file) return;
 
     // Validate file type
-    if (!file.name.toLowerCase().endsWith('.pdf')) {
-      setUploadMessage('Please select a PDF file');
+    const supportedExtensions = ['.pdf', '.md', '.txt'];
+    const fileExtension = '.' + file.name.toLowerCase().split('.').pop();
+    if (!supportedExtensions.includes(fileExtension)) {
+      setUploadMessage('Please select a PDF, Markdown, or Text file');
       return;
     }
 
@@ -78,11 +80,11 @@ export default function PDFUpload() {
       setIsUploading(true);
       setUploadMessage('');
       
-      const response = await api.uploadPDF(file);
+      const response = await api.uploadFile(file);
       setUploadMessage(`Successfully uploaded: ${response.filename}. Indexing will start shortly...`);
       
-      // Reload the PDF list
-      await loadPDFs();
+      // Reload the file list
+      await loadFiles();
       
       // Clear the file input
       event.target.value = '';
@@ -139,31 +141,31 @@ export default function PDFUpload() {
 
   return (
     <div className="max-w-2xl mx-auto p-6 bg-white rounded-lg shadow-md">
-      <h2 className="text-2xl font-bold mb-6 text-gray-800">PDF Upload</h2>
+      <h2 className="text-2xl font-bold mb-6 text-gray-800">File Upload</h2>
       
       {/* Upload Section */}
       <div className="mb-8">
         <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
           <input
             type="file"
-            accept=".pdf"
+            accept=".pdf,.md,.txt"
             onChange={handleFileUpload}
             disabled={isUploading}
             className="hidden"
-            id="pdf-upload"
+            id="file-upload"
           />
           <label
-            htmlFor="pdf-upload"
+            htmlFor="file-upload"
             className={`cursor-pointer inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white ${
               isUploading 
                 ? 'bg-gray-400 cursor-not-allowed' 
                 : 'bg-blue-600 hover:bg-blue-700'
             }`}
           >
-            {isUploading ? 'Uploading...' : 'Choose PDF File'}
+            {isUploading ? 'Uploading...' : 'Choose File'}
           </label>
           <p className="mt-2 text-sm text-gray-500">
-            Click to select a PDF file to upload
+            Click to select a PDF, Markdown, or Text file to upload
           </p>
         </div>
         
@@ -178,44 +180,44 @@ export default function PDFUpload() {
         )}
       </div>
 
-      {/* PDF List Section */}
+      {/* File List Section */}
       <div>
-        <h3 className="text-lg font-semibold mb-4 text-gray-700">Uploaded PDFs</h3>
+        <h3 className="text-lg font-semibold mb-4 text-gray-700">Uploaded Files</h3>
         
         {isLoading ? (
           <div className="text-center py-4">
-            <p className="text-gray-500">Loading PDFs...</p>
+            <p className="text-gray-500">Loading files...</p>
           </div>
-        ) : pdfs.length === 0 ? (
+        ) : files.length === 0 ? (
           <div className="text-center py-8 bg-gray-50 rounded-lg">
-            <p className="text-gray-500">No PDFs uploaded yet</p>
-            <p className="text-sm text-gray-400 mt-1">Upload your first PDF above</p>
+            <p className="text-gray-500">No files uploaded yet</p>
+            <p className="text-sm text-gray-400 mt-1">Upload your first file above</p>
           </div>
         ) : (
           <div className="space-y-3">
-            {pdfs.map((pdf) => (
+            {files.map((file) => (
               <div
-                key={pdf.file_id}
+                key={file.file_id}
                 className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border"
               >
                 <div className="flex-1">
-                  <p className="font-medium text-gray-800">{pdf.original_filename}</p>
+                  <p className="font-medium text-gray-800">{file.original_filename}</p>
                   <p className="text-sm text-gray-500">
-                    Uploaded: {formatDate(pdf.uploaded_at)}
+                    Uploaded: {formatDate(file.uploaded_at)}
                   </p>
-                  {(pdf.indexing_status === 'pending' || pdf.indexing_status === 'indexing') && (
+                  {(file.indexing_status === 'pending' || file.indexing_status === 'indexing') && (
                     <p className="text-sm text-blue-600 mt-1">
-                      {pdf.indexing_message}
+                      {file.indexing_message}
                     </p>
                   )}
-                  {pdf.indexing_status === 'failed' && (
+                  {file.indexing_status === 'failed' && (
                     <p className="text-sm text-red-600 mt-1">
-                      {pdf.indexing_message}
+                      {file.indexing_message}
                     </p>
                   )}
                 </div>
                 <div className="ml-4">
-                  {getStatusBadge(pdf.indexing_status)}
+                  {getStatusBadge(file.indexing_status)}
                 </div>
               </div>
             ))}

@@ -44,7 +44,7 @@ interface PDFFile {
 }
 
 interface PDFListResponse {
-  pdfs: PDFFile[];
+  files: PDFFile[];
 }
 
 interface PDFIndexingStatus {
@@ -164,18 +164,18 @@ export const api = {
     return response.json();
   },
 
-  async uploadPDF(file: File): Promise<PDFUploadResponse> {
+  async uploadFile(file: File): Promise<PDFUploadResponse> {
     const formData = new FormData();
     formData.append('file', file);
 
-    const response = await fetch(`${API_BASE_URL}/api/upload-pdf`, {
+    const response = await fetch(`${API_BASE_URL}/api/upload-file`, {
       method: 'POST',
       body: formData,
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Failed to upload PDF: ${errorText}`);
+      throw new Error(`Failed to upload file: ${errorText}`);
     }
 
     const result = await response.json();
@@ -199,13 +199,13 @@ export const api = {
       for (let i = 0; i < binaryString.length; i++) {
         bytes[i] = binaryString.charCodeAt(i);
       }
-      const file = new File([bytes], filename, { type: 'application/pdf' });
+      const file = new File([bytes], filename, { type: 'application/octet-stream' });
 
       // Import PDFProcessor dynamically to avoid SSR issues
       const { PDFProcessor } = await import('@/utils/pdfProcessor');
       
-      // Process the PDF
-      const { chunks, embeddings } = await PDFProcessor.processPDF(file);
+      // Process the file
+      const { chunks, embeddings } = await PDFProcessor.processFile(file);
       
       // Send pre-indexed data to backend
       const request: PreIndexedPDFRequest = {
@@ -215,7 +215,7 @@ export const api = {
         embeddings: embeddings
       };
 
-      const response = await fetch(`${API_BASE_URL}/api/pre-indexed-pdf`, {
+      const response = await fetch(`${API_BASE_URL}/api/pre-indexed-file`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -225,21 +225,21 @@ export const api = {
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`Failed to index browser-stored PDF: ${errorText}`);
+        throw new Error(`Failed to index browser-stored file: ${errorText}`);
       }
 
-      console.log(`Successfully indexed browser-stored PDF: ${filename}`);
+      console.log(`Successfully indexed browser-stored file: ${filename}`);
     } catch (error) {
-      console.error('Error indexing browser-stored PDF:', error);
+      console.error('Error indexing browser-stored file:', error);
       // Don't throw here as this is called asynchronously
     }
   },
 
-  async listPDFs(): Promise<PDFListResponse> {
-    const response = await fetch(`${API_BASE_URL}/api/pdfs`);
+  async listFiles(): Promise<PDFListResponse> {
+    const response = await fetch(`${API_BASE_URL}/api/files`);
     
     if (!response.ok) {
-      throw new Error('Failed to list PDFs');
+      throw new Error('Failed to list files');
     }
 
     const result = await response.json();
@@ -248,7 +248,7 @@ export const api = {
     const healthResponse = await this.healthCheck();
     if (healthResponse.readonly) {
       const browserFiles = getBrowserStoredFiles();
-      const browserPDFs: Array<PDFFile> = Object.entries(browserFiles).map(([fileId, fileData]): PDFFile => ({
+      const browserFilesList: Array<PDFFile> = Object.entries(browserFiles).map(([fileId, fileData]): PDFFile => ({
         file_id: fileId,
         original_filename: fileData.filename,
         uploaded_at: fileData.uploaded_at / 1000, // Convert to Unix timestamp
@@ -257,27 +257,44 @@ export const api = {
       }));
 
       // Merge server and browser files, avoiding duplicates
-      const serverFileIds = new Set(result.pdfs.map((pdf: PDFFile) => pdf.file_id));
-      const uniqueBrowserPDFs: PDFFile[] = [];
-      for (const pdf of browserPDFs) {
-        if (!serverFileIds.has(pdf.file_id)) {
-          uniqueBrowserPDFs.push(pdf);
+      const serverFileIds = new Set(result.files.map((file: PDFFile) => file.file_id));
+      const uniqueBrowserFiles: PDFFile[] = [];
+      for (const file of browserFilesList) {
+        if (!serverFileIds.has(file.file_id)) {
+          uniqueBrowserFiles.push(file);
         }
       }
-      result.pdfs = [...result.pdfs, ...uniqueBrowserPDFs];
+      result.files = [...result.files, ...uniqueBrowserFiles];
     }
 
     return result;
   },
 
-  async getPDFIndexingStatus(fileId: string): Promise<PDFIndexingStatus> {
-    const response = await fetch(`${API_BASE_URL}/api/pdfs/${fileId}/status`);
+  async getFileIndexingStatus(fileId: string): Promise<PDFIndexingStatus> {
+    const response = await fetch(`${API_BASE_URL}/api/files/${fileId}/status`);
     
     if (!response.ok) {
-      throw new Error('Failed to get PDF indexing status');
+      throw new Error('Failed to get file indexing status');
     }
 
     return response.json();
+  },
+
+  async chatWithFile(request: PDFChatRequest): Promise<ReadableStream> {
+    const response = await fetch(`${API_BASE_URL}/api/chat-file`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to chat with file: ${errorText}`);
+    }
+
+    return response.body as ReadableStream;
   },
 
   async healthCheck(): Promise<HealthResponse> {
@@ -300,7 +317,7 @@ export const api = {
       for (const [fileId, fileData] of Object.entries(browserFiles)) {
         // Check if this file is already indexed on the backend
         try {
-          const statusResponse = await this.getPDFIndexingStatus(fileId);
+          const statusResponse = await this.getFileIndexingStatus(fileId);
           if (statusResponse.status === 'completed') {
             continue; // Already indexed
           }

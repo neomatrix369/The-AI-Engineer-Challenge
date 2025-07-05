@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Chat from '@/components/Chat';
-import PDFUpload from '@/components/PDFUpload';
+import FileUpload from '@/components/PDFUpload';
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState<'upload' | 'chat'>('upload');
@@ -11,7 +11,7 @@ export default function Home() {
     <main className="min-h-screen bg-gray-50">
       <div className="container mx-auto py-8">
         <h1 className="text-3xl font-bold text-center mb-8 text-gray-800">
-          AI PDF Chat Interface
+          AI Document Chat Interface
         </h1>
         
         {/* Tab Navigation */}
@@ -25,7 +25,7 @@ export default function Home() {
                   : 'bg-white text-gray-600 hover:text-gray-800'
               }`}
             >
-              Upload PDF
+              Upload Files
             </button>
             <button
               onClick={() => setActiveTab('chat')}
@@ -43,7 +43,7 @@ export default function Home() {
         {/* Content */}
         <div className="max-w-4xl mx-auto">
           {activeTab === 'upload' ? (
-            <PDFUpload />
+            <FileUpload />
           ) : (
             <div className="bg-white rounded-lg shadow-md p-6">
               <h2 className="text-2xl font-bold mb-6 text-gray-800">AI Chat</h2>
