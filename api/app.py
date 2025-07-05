@@ -728,6 +728,33 @@ async def accept_pre_indexed_file(request: PreIndexedFileRequest):
         }
         raise HTTPException(status_code=500, detail=f"Failed to index file: {str(e)}")
 
+# Define file deletion endpoint
+@app.delete("/api/files/{file_id}")
+async def delete_file(file_id: str):
+    """Delete a file from memory and vector database"""
+    try:
+        # Check if file exists in vector database
+        if file_id in vector_databases:
+            # Remove from vector database
+            del vector_databases[file_id]
+            
+            # Remove from chat sessions that reference this file
+            for session_id in list(chat_sessions.keys()):
+                session = chat_sessions[session_id]
+                if file_id in session.file_ids:
+                    session.file_ids.remove(file_id)
+                    # If no files left in session, remove the session
+                    if not session.file_ids:
+                        del chat_sessions[session_id]
+            
+            return {"message": f"File {file_id} deleted successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="File not found")
+            
+    except Exception as e:
+        logger.error(f"Error deleting file {file_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete file: {str(e)}")
+
 # Entry point for running the application directly
 if __name__ == "__main__":
     import uvicorn

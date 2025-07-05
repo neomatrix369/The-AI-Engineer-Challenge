@@ -321,4 +321,30 @@ export const api = {
   setBrowserStoredFiles,
   addBrowserStoredFile,
   removeBrowserStoredFile,
+
+  async deleteFile(fileId: string): Promise<{ message: string }> {
+    try {
+      // Try to delete from server first
+      const response = await fetch(`${API_BASE_URL}/api/files/${fileId}`, {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        // Also remove from browser storage if it exists there
+        removeBrowserStoredFile(fileId);
+        return response.json();
+      } else if (response.status === 404) {
+        // File not found on server, try to remove from browser storage only
+        removeBrowserStoredFile(fileId);
+        return { message: `File ${fileId} deleted from browser storage` };
+      } else {
+        const errorText = await response.text();
+        throw new Error(`Failed to delete file: ${errorText}`);
+      }
+    } catch (error) {
+      // If server is unreachable, try to remove from browser storage
+      removeBrowserStoredFile(fileId);
+      return { message: `File ${fileId} deleted from browser storage` };
+    }
+  },
 };
