@@ -19,6 +19,8 @@ This document provides instructions for merging the `feature/improved-rag-step4`
 - ✅ **JSON File Support**: Added comprehensive JSON file processing with hierarchical flattening
 - ✅ **Domain-Specific Guidance**: Added contextual guidance for each file type with helpful tips and examples
 - ✅ **Collapsible Guidance**: Users can hide guidance after reading to focus on chatting
+- ✅ **User Persona Guidance**: Added role-specific guidance for different user types (Researcher, Business, Student, Analyst, Manager, Developer, Architect, Writer)
+- ✅ **Persona Display**: Fixed logic to show selected persona when guidance is collapsed
 - ✅ **Enhanced CSV Processing**: Added proper CSV parsing to frontend matching backend capabilities
 - ✅ **README Accuracy**: Updated README to truthfully reflect all processing capabilities
 
@@ -80,6 +82,10 @@ Your app now speaks the language of **all the files**! 📁✨
      - [ ] Test collapsible guidance functionality (show/hide toggle)
      - [ ] Verify guidance appears when files are selected in Chat with File mode
      - [ ] Test guidance content for different file type combinations
+     - [ ] Test user persona guidance for different roles (Researcher, Business, Student, Analyst, Manager, Developer, Architect, Writer)
+     - [ ] Test persona selector dropdown functionality
+     - [ ] Verify persona display when guidance is collapsed
+     - [ ] Test persona-specific tips and examples for each file type
      - [ ] Test CSV processing with proper parsing (headers, rows, quoted values)
      - [ ] Verify frontend CSV processing matches backend capabilities
      - [ ] Verify README claims are accurate and truthful
@@ -134,6 +140,10 @@ Your app now speaks the language of **all the files**! 📁✨
      - [ ] Test collapsible guidance functionality (show/hide toggle)
      - [ ] Verify guidance appears when files are selected in Chat with File mode
      - [ ] Test guidance content for different file type combinations
+     - [ ] Test user persona guidance for different roles (Researcher, Business, Student, Analyst, Manager, Developer, Architect, Writer)
+     - [ ] Test persona selector dropdown functionality
+     - [ ] Verify persona display when guidance is collapsed
+     - [ ] Test persona-specific tips and examples for each file type
      - [ ] Test CSV processing with proper parsing (headers, rows, quoted values)
      - [ ] Verify frontend CSV processing matches backend capabilities
      - [ ] Verify README claims are accurate and truthful" \

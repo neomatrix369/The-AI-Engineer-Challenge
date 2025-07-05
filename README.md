@@ -258,6 +258,7 @@ A modern RAG (Retrieval-Augmented Generation) chat application that supports mul
 ✅ Data Analysis: CSV processing with structured data handling
 ✅ Documentation: Markdown support for technical docs
 ✅ Research: Multi-format support for various research data types (including the .txt file-format for text files)
+✅ User Personas: Role-specific guidance for different user types (Researcher, Business, Student, Analyst, Manager, Developer, Architect, Writer)
 
 ## Tech Stack
 
@@ -267,6 +268,7 @@ A modern RAG (Retrieval-Augmented Generation) chat application that supports mul
 - **Tailwind CSS** for styling
 - **Multi-format file processing** for PDF, CSV, JSON, and text files
 - **Browser localStorage** for file storage in read-only environments
+- **User persona guidance** with role-specific tips and examples
 
 ### Backend
 - **FastAPI** with async support
@@ -298,6 +300,17 @@ npm run dev
 - **Text (.txt)**: Simple text file processing with UTF-8 encoding
 - **CSV**: Structured data processing with column headers and row analysis
 - **JSON**: Structured data processing with hierarchical object flattening
+
+## User Personas & Guidance
+
+The application provides role-specific guidance for different user types:
+
+- **PDF Files**: Researcher, Business User, Student
+- **CSV Files**: Analyst, Manager, Developer
+- **JSON Files**: Developer, Architect, Analyst
+- **Text Files**: Writer, Developer, Student
+
+Each persona includes contextual tips and example questions tailored to their specific use case.
 
 ## Architecture
 
