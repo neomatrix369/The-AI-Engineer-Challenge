@@ -107,6 +107,80 @@ Should return: `{"status": "ok", "readonly": true}`
 2. Refresh the page to reload file list
 3. Check if indexing completed in console
 
+### 1. PDF Processing Worker Loading Issue
+
+**Problem**: PDF files fail to process with error "Failed to fetch dynamically imported module"
+
+**Symptoms**:
+- Console error: `Error extracting text from PDF: Error: Setting up fake worker failed`
+- PDF files show "Unknown" status after upload
+- Chat tab shows "No indexed files available"
+
+**Root Cause**: PDF.js worker file fails to load from CDN in Vercel's read-only environment
+
+**Solution Implemented**:
+- Added local PDF worker file (`/public/pdf.worker.min.mjs`)
+- Implemented fallback PDF processing for worker loading failures
+- Added comprehensive error handling and user-friendly messages
+- Uses local worker file as primary option with CDN fallbacks
+
+**Testing the Fix**:
+1. Upload a PDF file
+2. Check browser console for detailed logging
+3. If main PDF extraction fails, fallback should provide helpful message
+4. Verify file status updates correctly
+
+### 2. File Upload and Storage Issues
+
+**Problem**: Files show "Unknown" status after upload
+
+**Symptoms**:
+- Files appear in file list but status remains "Unknown"
+- No indexing progress shown
+- Chat tab indicates no files available
+
+**Root Cause**: Browser storage limitations or file processing failures
+
+**Solutions**:
+- Check browser storage limits (localStorage has ~5-10MB limit)
+- Verify file size is reasonable (< 1MB recommended)
+- Ensure file format is supported (PDF, CSV, JSON, MD, TXT)
+- Check console for processing errors
+
+### 3. Indexing and Vector Database Issues
+
+**Problem**: Files are uploaded but not indexed
+
+**Symptoms**:
+- Files show as uploaded but not available for chat
+- "No indexed files available" message in chat
+- Files don't appear in chat file selection
+
+**Root Cause**: Vector database storage or embedding creation failures
+
+**Solutions**:
+- Check OpenAI API key configuration
+- Verify network connectivity to OpenAI API
+- Check console for embedding creation errors
+- Ensure file content is extractable (not image-only PDFs)
+
+### 4. Chat Functionality Issues
+
+**Problem**: Chat doesn't work with uploaded files
+
+**Symptoms**:
+- Chat interface loads but no responses
+- "Files not found or not indexed" error
+- No file selection available in chat
+
+**Root Cause**: Backend API issues or file synchronization problems
+
+**Solutions**:
+- Check backend API endpoints are accessible
+- Verify file indexing completed successfully
+- Check browser console for API errors
+- Ensure files are properly stored and indexed
+
 ## 🔍 Advanced Debugging
 
 ### Check Backend Logs
