@@ -291,6 +291,7 @@ export default function Chat({ fileListVersion = 0 }: ChatProps) {
   const [showPromptHint, setShowPromptHint] = useState(false);
   const [showFileGuidance, setShowFileGuidance] = useState(true);
   const [selectedPersona, setSelectedPersona] = useState<string>('general');
+  const [showFileSelection, setShowFileSelection] = useState(true);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -642,32 +643,66 @@ export default function Chat({ fileListVersion = 0 }: ChatProps) {
       {/* File Selection (only show when in file mode) */}
       {chatMode === 'file' && (
         <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Select Files to chat with:
-          </label>
-          {readyFiles.length === 0 ? (
-            <div className="text-sm text-gray-500 bg-gray-50 p-3 rounded-lg">
-              No indexed files available. Please upload and wait for indexing to complete.
-            </div>
-          ) : (
-            <div className="space-y-2 max-h-32 overflow-y-auto">
-              {readyFiles.map((file) => (
-                <label key={file.file_id} className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={selectedFiles.includes(file.file_id)}
-                    onChange={(e) => handleFileSelection(file.file_id, e.target.checked)}
-                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  <span className="text-sm text-gray-700">{file.original_filename}</span>
-                </label>
-              ))}
-            </div>
-          )}
-          {selectedFiles.length > 0 && (
-            <div className="mt-2 text-sm text-blue-600">
+          {/* File Selection Toggle Button */}
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-medium text-gray-700">Select Files to chat with:</h3>
+            <button
+              onClick={() => setShowFileSelection(!showFileSelection)}
+              className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 transition-colors"
+            >
+              {showFileSelection ? (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 12h-15" />
+                  </svg>
+                  Hide Files
+                </>
+              ) : (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                  </svg>
+                  Show Files
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* Show selected files when collapsed */}
+          {!showFileSelection && selectedFiles.length > 0 && (
+            <div className="mb-2 text-sm text-blue-600">
               Chatting with: <strong>{getSelectedFileNames().join(', ')}</strong>
             </div>
+          )}
+
+          {/* Collapsible File Selection Content */}
+          {showFileSelection && (
+            <>
+              {readyFiles.length === 0 ? (
+                <div className="text-sm text-gray-500 bg-gray-50 p-3 rounded-lg">
+                  No indexed files available. Please upload and wait for indexing to complete.
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-32 overflow-y-auto">
+                  {readyFiles.map((file) => (
+                    <label key={file.file_id} className="flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedFiles.includes(file.file_id)}
+                        onChange={(e) => handleFileSelection(file.file_id, e.target.checked)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-gray-700">{file.original_filename}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+              {selectedFiles.length > 0 && (
+                <div className="mt-2 text-sm text-blue-600">
+                  Chatting with: <strong>{getSelectedFileNames().join(', ')}</strong>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
@@ -677,7 +712,7 @@ export default function Chat({ fileListVersion = 0 }: ChatProps) {
         <div className="mb-4">
           {/* Guidance Toggle Button */}
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-medium text-gray-700">File Type Guidance (for different personas i.e. General User, Business, Developer, Write, etc...)</h3>
+            <h3 className="text-sm font-medium text-gray-700">File Type Guidance (for different personas i.e. General User, Business, Developer, Writer, etc...)</h3>
             <button
               onClick={() => setShowFileGuidance(!showFileGuidance)}
               className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 transition-colors"
@@ -699,6 +734,13 @@ export default function Chat({ fileListVersion = 0 }: ChatProps) {
               )}
             </button>
           </div>
+
+          {/* Show selected persona when guidance is collapsed */}
+          {!showFileGuidance && (
+            <div className="mb-2 text-sm text-blue-600">
+              View as: <strong>{selectedPersona === 'general' ? 'General User' : selectedPersona.charAt(0).toUpperCase() + selectedPersona.slice(1)}</strong>
+            </div>
+          )}
 
           {/* Collapsible Guidance Content */}
           {showFileGuidance && (
