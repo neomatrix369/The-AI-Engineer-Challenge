@@ -265,7 +265,7 @@ A modern RAG (Retrieval-Augmented Generation) chat application that supports mul
 - **Next.js 14** with App Router
 - **TypeScript** for type safety
 - **Tailwind CSS** for styling
-- **PDF.js** for client-side PDF processing
+- **Multi-format file processing** for PDF, CSV, JSON, and text files
 - **Browser localStorage** for file storage in read-only environments
 
 ### Backend
@@ -273,7 +273,7 @@ A modern RAG (Retrieval-Augmented Generation) chat application that supports mul
 - **OpenAI API** for embeddings and chat
 - **Custom aimakerspace library** for AI utilities
 - **Vector database** for semantic search
-- **Multi-format processing** (PDF, MD, TXT, CSV)
+- **Multi-format file processing** for PDF, Markdown, Text, CSV, and JSON files
 
 ## Quick Start
 
@@ -293,10 +293,10 @@ npm run dev
 
 ## File Format Support
 
-- **PDF**: Full text extraction and semantic indexing
+- **PDF**: Full text extraction and semantic indexing with PDF.js
 - **Markdown (.md)**: Direct text processing with formatting preserved
-- **Text (.txt)**: Simple text file processing
-- **CSV**: Structured data processing with column headers
+- **Text (.txt)**: Simple text file processing with UTF-8 encoding
+- **CSV**: Structured data processing with column headers and row analysis
 - **JSON**: Structured data processing with hierarchical object flattening
 
 ## Architecture

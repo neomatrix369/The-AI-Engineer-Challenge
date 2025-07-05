@@ -93,6 +93,79 @@ export class FileProcessor {
   }
 
   /**
+   * Extract text from CSV files
+   */
+  static async extractTextFromCSV(file: File): Promise<string[]> {
+    try {
+      const text = await file.text();
+      
+      // Parse CSV and convert to text chunks
+      const lines = text.split('\n');
+      const textChunks: string[] = [];
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        
+        // Simple CSV parsing (split by comma, handle quoted values)
+        const cells = this.parseCSVLine(line);
+        
+        if (i === 0) { // Header row
+          const header = cells.join(" | ");
+          textChunks.push(`Headers: ${header}`);
+        } else { // Data row
+          const rowText = cells.join(" | ");
+          textChunks.push(`Row ${i}: ${rowText}`);
+        }
+      }
+      
+      if (textChunks.length === 0) {
+        throw new Error('CSV file is empty or could not be parsed');
+      }
+      
+      return textChunks;
+    } catch (error) {
+      console.error('Error extracting text from CSV:', error);
+      throw new Error('Failed to extract text from CSV file');
+    }
+  }
+
+  /**
+   * Simple CSV line parser that handles quoted values
+   */
+  private static parseCSVLine(line: string): string[] {
+    const cells: string[] = [];
+    let currentCell = '';
+    let inQuotes = false;
+    
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      
+      if (char === '"') {
+        if (inQuotes && line[i + 1] === '"') {
+          // Escaped quote
+          currentCell += '"';
+          i++; // Skip next quote
+        } else {
+          // Toggle quote state
+          inQuotes = !inQuotes;
+        }
+      } else if (char === ',' && !inQuotes) {
+        // End of cell
+        cells.push(currentCell.trim());
+        currentCell = '';
+      } else {
+        currentCell += char;
+      }
+    }
+    
+    // Add the last cell
+    cells.push(currentCell.trim());
+    
+    return cells;
+  }
+
+  /**
    * Split text into chunks similar to the backend CharacterTextSplitter
    */
   static splitTextIntoChunks(texts: string[], chunkSize: number = 1000, chunkOverlap: number = 200): string[] {
@@ -166,7 +239,7 @@ export class FileProcessor {
   }
 
   /**
-   * Process any supported file type: PDF, Markdown, Text, or CSV
+   * Process any supported file type: PDF, Markdown, Text, CSV, or JSON
    */
   static async processFile(file: File): Promise<{
     chunks: string[];
@@ -184,7 +257,7 @@ export class FileProcessor {
       textChunks = await this.extractTextFromFile(file);
     } else if (fileType === 'csv') {
       // Extract text from CSV files
-      textChunks = await this.extractTextFromFile(file);
+      textChunks = await this.extractTextFromCSV(file);
     } else if (fileType === 'json') {
       // Extract text from JSON files
       textChunks = await this.extractTextFromJSON(file);
