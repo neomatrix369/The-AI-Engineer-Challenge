@@ -251,6 +251,14 @@ A modern RAG (Retrieval-Augmented Generation) chat application that supports mul
 - **Chat History**: Persistent chat sessions with file context
 - **Browser Storage**: Works in read-only environments (like Vercel) with client-side processing
 
+### Domain-Specific Considerations:
+
+✅ Developer Workflow: JSON/CSV support for API responses and data analysis
+✅ Business Intelligence: PDF support for reports and documentation
+✅ Data Analysis: CSV processing with structured data handling
+✅ Documentation: Markdown support for technical docs
+✅ Research: Multi-format support for various research data types
+
 ## Tech Stack
 
 ### Frontend
