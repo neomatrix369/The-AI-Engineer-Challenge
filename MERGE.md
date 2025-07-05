@@ -13,6 +13,7 @@ This document provides instructions for merging the `feature/improved-rag-step4`
 - ✅ **Documentation**: Updated all README files to reflect multi-format support
 - ✅ **Interface Exports**: Properly exported shared interfaces from API service
 - ✅ **File Deletion**: Added complete file deletion functionality with UI controls
+- ✅ **File Deletion**: Added complete file deletion functionality with UI controls in Upload Files tab
 
 ## 🎨 What This Means for Users
 
@@ -58,6 +59,9 @@ Your app now speaks the language of **all the files**! 📁✨
      - [ ] Test individual file deletion with delete buttons
      - [ ] Test "Delete All" functionality with confirmation
      - [ ] Test deletion of both server-stored and browser-stored files
+     - [ ] Test individual file deletion with delete buttons in Upload Files tab
+     - [ ] Test "Delete All" functionality with confirmation in Upload Files tab
+     - [ ] Test deletion of both server-stored and browser-stored files
      ```
 
 3. **Review and Merge:**
@@ -95,6 +99,9 @@ Your app now speaks the language of **all the files**! 📁✨
      - [ ] Check that old PDF functionality still works
      - [ ] Test individual file deletion with delete buttons
      - [ ] Test "Delete All" functionality with confirmation
+     - [ ] Test deletion of both server-stored and browser-stored files
+     - [ ] Test individual file deletion with delete buttons in Upload Files tab
+     - [ ] Test "Delete All" functionality with confirmation in Upload Files tab
      - [ ] Test deletion of both server-stored and browser-stored files" \
      --base main \
      --head feature/improved-rag-step4
@@ -151,8 +158,8 @@ To test your newly merged multi-file support:
    - Verify the UI text is all updated
    - Test chat history with file context
    - Check that browser storage still works
-   - Test file deletion with individual delete buttons
-   - Test "Delete All" functionality with confirmation dialog
+   - Test file deletion with individual delete buttons in Upload Files tab
+   - Test "Delete All" functionality with confirmation dialog in Upload Files tab
 
 ## 🎯 Key Benefits of This Refactor
 
