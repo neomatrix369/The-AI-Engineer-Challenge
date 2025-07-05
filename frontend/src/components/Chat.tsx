@@ -14,6 +14,85 @@ interface ChatProps {
   fileListVersion?: number;
 }
 
+// File type guidance data
+interface FileTypeGuidance {
+  title: string;
+  description: string;
+  tips: string[];
+  examples: string[];
+}
+
+const FILE_TYPE_GUIDANCE: Record<string, FileTypeGuidance> = {
+  pdf: {
+    title: "PDF Documents",
+    description: "PDF files contain formatted documents, reports, research papers, and other structured content.",
+    tips: [
+      "Ask about specific sections, chapters, or page numbers",
+      "Request summaries of key findings or conclusions",
+      "Ask for data extraction from tables or charts",
+      "Inquire about methodology, results, or recommendations",
+      "Request comparisons between different sections"
+    ],
+    examples: [
+      "What are the main findings in this research paper?",
+      "Summarize the methodology section",
+      "What data is presented in the tables?",
+      "What are the key recommendations?"
+    ]
+  },
+  csv: {
+    title: "CSV Data Files",
+    description: "CSV files contain structured data in tabular format, perfect for data analysis and insights.",
+    tips: [
+      "Ask for data summaries and statistics",
+      "Request trend analysis and patterns",
+      "Ask about specific columns or data relationships",
+      "Request data filtering and sorting insights",
+      "Ask for data quality assessments"
+    ],
+    examples: [
+      "What are the main trends in this dataset?",
+      "Show me statistics for the sales column",
+      "What patterns do you see in the data?",
+      "Are there any outliers or anomalies?"
+    ]
+  },
+  json: {
+    title: "JSON Data Files",
+    description: "JSON files contain structured data in a hierarchical format, often used for APIs and configuration.",
+    tips: [
+      "Ask about data structure and hierarchy",
+      "Request specific field values or nested data",
+      "Ask for data validation and schema analysis",
+      "Request data transformation suggestions",
+      "Ask about API endpoints or configuration details"
+    ],
+    examples: [
+      "What is the structure of this JSON data?",
+      "Show me all user IDs in the data",
+      "What configuration options are available?",
+      "Are there any missing required fields?"
+    ]
+  },
+  text: {
+    title: "Text & Markdown Files",
+    description: "Text and Markdown files contain plain text content, documentation, notes, and formatted text.",
+    tips: [
+      "Ask for content summaries and key points",
+      "Request code explanations and documentation",
+      "Ask about specific topics or sections",
+      "Request formatting and structure analysis",
+      "Ask for content organization suggestions"
+    ],
+    examples: [
+      "Summarize the main points of this document",
+      "Explain the code examples in this file",
+      "What are the key topics covered?",
+      "How is this content organized?"
+    ]
+  }
+};
+
 export default function Chat({ fileListVersion = 0 }: ChatProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -27,6 +106,7 @@ export default function Chat({ fileListVersion = 0 }: ChatProps) {
   const [error, setError] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [showPromptHint, setShowPromptHint] = useState(false);
+  const [showFileGuidance, setShowFileGuidance] = useState(true);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -48,6 +128,31 @@ export default function Chat({ fileListVersion = 0 }: ChatProps) {
       loadFiles();
     }
   }, [fileListVersion]);
+
+  // Helper function to get file type from filename
+  const getFileType = (filename: string): string => {
+    const ext = filename.toLowerCase().split('.').pop() || '';
+    if (ext === 'pdf') return 'pdf';
+    if (ext === 'csv') return 'csv';
+    if (ext === 'json') return 'json';
+    if (['md', 'txt'].includes(ext)) return 'text';
+    return 'unknown';
+  };
+
+  // Helper function to get unique file types from selected files
+  const getSelectedFileTypes = (): string[] => {
+    const fileTypes = selectedFiles.map(fileId => {
+      const file = files.find(f => f.file_id === fileId);
+      return file ? getFileType(file.original_filename) : 'unknown';
+    });
+    return Array.from(new Set(fileTypes)).filter(type => type !== 'unknown');
+  };
+
+  // Helper function to get guidance for file types
+  const getFileTypeGuidance = (): FileTypeGuidance[] => {
+    const fileTypes = getSelectedFileTypes();
+    return fileTypes.map(type => FILE_TYPE_GUIDANCE[type]).filter(Boolean);
+  };
 
   const loadFiles = async () => {
     try {
@@ -378,6 +483,80 @@ export default function Chat({ fileListVersion = 0 }: ChatProps) {
           {selectedFiles.length > 0 && (
             <div className="mt-2 text-sm text-blue-600">
               Chatting with: <strong>{getSelectedFileNames().join(', ')}</strong>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* File Type Guidance (only show when files are selected in file mode) */}
+      {chatMode === 'file' && selectedFiles.length > 0 && (
+        <div className="mb-4">
+          {/* Guidance Toggle Button */}
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-medium text-gray-700">File Type Guidance</h3>
+            <button
+              onClick={() => setShowFileGuidance(!showFileGuidance)}
+              className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 transition-colors"
+            >
+              {showFileGuidance ? (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 12h-15" />
+                  </svg>
+                  Hide Guidance
+                </>
+              ) : (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                  </svg>
+                  Show Guidance
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* Collapsible Guidance Content */}
+          {showFileGuidance && (
+            <div className="space-y-3">
+              {getFileTypeGuidance().map((guidance, index) => (
+                <div key={index} className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-blue-600">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
+                    </svg>
+                    <h3 className="text-sm font-semibold text-blue-800">{guidance.title}</h3>
+                  </div>
+                  
+                  <p className="text-sm text-blue-700 mb-3">{guidance.description}</p>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <h4 className="text-xs font-medium text-blue-800 mb-2">💡 Helpful Tips:</h4>
+                      <ul className="text-xs text-blue-700 space-y-1">
+                        {guidance.tips.map((tip, tipIndex) => (
+                          <li key={tipIndex} className="flex items-start gap-1">
+                            <span className="text-blue-500 mt-1">•</span>
+                            <span>{tip}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    
+                    <div>
+                      <h4 className="text-xs font-medium text-blue-800 mb-2">💬 Example Questions:</h4>
+                      <ul className="text-xs text-blue-700 space-y-1">
+                        {guidance.examples.map((example, exampleIndex) => (
+                          <li key={exampleIndex} className="flex items-start gap-1">
+                            <span className="text-blue-500 mt-1">•</span>
+                            <span className="italic">"{example}"</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
