@@ -4,17 +4,17 @@ interface ChatRequest {
   model?: string;
 }
 
-interface PDFChatRequest {
+interface FileChatRequest {
   user_message: string;
-  pdf_file_ids: string[];
+  file_ids: string[];
   session_id?: string;
   model?: string;
 }
 
-interface ChatSession {
+export interface ChatSession {
   session_id: string;
   created_at: string;
-  pdf_file_ids: string[];
+  file_ids: string[];
   messages: Array<{
     role: string;
     content: string;
@@ -26,7 +26,7 @@ interface ChatHistoryResponse {
   sessions: ChatSession[];
 }
 
-interface PDFUploadResponse {
+interface FileUploadResponse {
   filename: string;
   file_id: string;
   message: string;
@@ -35,7 +35,7 @@ interface PDFUploadResponse {
   file_content?: string; // Base64 encoded file content for browser storage
 }
 
-interface PDFFile {
+export interface FileInfo {
   file_id: string;
   original_filename: string;
   uploaded_at: number;
@@ -43,11 +43,11 @@ interface PDFFile {
   indexing_message: string;
 }
 
-interface PDFListResponse {
-  files: PDFFile[];
+interface FileListResponse {
+  files: FileInfo[];
 }
 
-interface PDFIndexingStatus {
+interface FileIndexingStatus {
   file_id: string;
   status: string;
   message: string;
@@ -58,7 +58,7 @@ interface HealthResponse {
   readonly: boolean;
 }
 
-interface PreIndexedPDFRequest {
+interface PreIndexedFileRequest {
   file_id: string;
   filename: string;
   chunks: string[];
@@ -74,7 +74,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || FALLBACK_API_URL;
 console.log('FinalAPI_BASE_URL:', API_BASE_URL);
 
 // Browser storage utilities
-const BROWSER_STORAGE_KEY = 'pdf_chat_files';
+const BROWSER_STORAGE_KEY = 'file_chat_files';
 
 const getBrowserStoredFiles = (): Record<string, { filename: string; content: string; uploaded_at: number }> => {
   try {
@@ -127,8 +127,8 @@ export const api = {
     return response.body as ReadableStream;
   },
 
-  async chatWithPDF(request: PDFChatRequest): Promise<ReadableStream> {
-    const response = await fetch(`${API_BASE_URL}/api/chat-pdf`, {
+  async chatWithFile(request: FileChatRequest): Promise<ReadableStream> {
+    const response = await fetch(`${API_BASE_URL}/api/chat-file`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -138,7 +138,7 @@ export const api = {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Failed to chat with PDF: ${errorText}`);
+      throw new Error(`Failed to chat with file: ${errorText}`);
     }
 
     return response.body as ReadableStream;
@@ -164,7 +164,7 @@ export const api = {
     return response.json();
   },
 
-  async uploadFile(file: File): Promise<PDFUploadResponse> {
+  async uploadFile(file: File): Promise<FileUploadResponse> {
     const formData = new FormData();
     formData.append('file', file);
 
@@ -201,14 +201,14 @@ export const api = {
       }
       const file = new File([bytes], filename, { type: 'application/octet-stream' });
 
-      // Import PDFProcessor dynamically to avoid SSR issues
-      const { PDFProcessor } = await import('@/utils/pdfProcessor');
+      // Import fileProcessor dynamically to avoid SSR issues
+      const { FileProcessor } = await import('@/utils/fileProcessor');
       
       // Process the file
-      const { chunks, embeddings } = await PDFProcessor.processFile(file);
+      const { chunks, embeddings } = await FileProcessor.processFile(file);
       
       // Send pre-indexed data to backend
-      const request: PreIndexedPDFRequest = {
+      const request: PreIndexedFileRequest = {
         file_id: fileId,
         filename: filename,
         chunks: chunks,
@@ -235,7 +235,7 @@ export const api = {
     }
   },
 
-  async listFiles(): Promise<PDFListResponse> {
+  async listFiles(): Promise<FileListResponse> {
     const response = await fetch(`${API_BASE_URL}/api/files`);
     
     if (!response.ok) {
@@ -248,7 +248,7 @@ export const api = {
     const healthResponse = await this.healthCheck();
     if (healthResponse.readonly) {
       const browserFiles = getBrowserStoredFiles();
-      const browserFilesList: Array<PDFFile> = Object.entries(browserFiles).map(([fileId, fileData]): PDFFile => ({
+      const browserFilesList: Array<FileInfo> = Object.entries(browserFiles).map(([fileId, fileData]): FileInfo => ({
         file_id: fileId,
         original_filename: fileData.filename,
         uploaded_at: fileData.uploaded_at / 1000, // Convert to Unix timestamp
@@ -257,8 +257,8 @@ export const api = {
       }));
 
       // Merge server and browser files, avoiding duplicates
-      const serverFileIds = new Set(result.files.map((file: PDFFile) => file.file_id));
-      const uniqueBrowserFiles: PDFFile[] = [];
+      const serverFileIds = new Set(result.files.map((file: FileInfo) => file.file_id));
+      const uniqueBrowserFiles: FileInfo[] = [];
       for (const file of browserFilesList) {
         if (!serverFileIds.has(file.file_id)) {
           uniqueBrowserFiles.push(file);
@@ -270,7 +270,7 @@ export const api = {
     return result;
   },
 
-  async getFileIndexingStatus(fileId: string): Promise<PDFIndexingStatus> {
+  async getFileIndexingStatus(fileId: string): Promise<FileIndexingStatus> {
     const response = await fetch(`${API_BASE_URL}/api/files/${fileId}/status`);
     
     if (!response.ok) {
@@ -278,23 +278,6 @@ export const api = {
     }
 
     return response.json();
-  },
-
-  async chatWithFile(request: PDFChatRequest): Promise<ReadableStream> {
-    const response = await fetch(`${API_BASE_URL}/api/chat-file`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(request),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Failed to chat with file: ${errorText}`);
-    }
-
-    return response.body as ReadableStream;
   },
 
   async healthCheck(): Promise<HealthResponse> {

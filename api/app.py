@@ -150,19 +150,19 @@ class ChatRequest(BaseModel):
     user_message: str      # Message from the user
     model: Optional[str] = "gpt-4.1-mini"  # Optional model selection with default
 
-class PDFChatRequest(BaseModel):
+class FileChatRequest(BaseModel):
     user_message: str
-    pdf_file_ids: List[str]  # Support multiple PDFs
+    file_ids: List[str]  # Support multiple files
     session_id: Optional[str] = None
     model: Optional[str] = "gpt-4.1-mini"
 
 class ChatSession(BaseModel):
     session_id: str
     created_at: str
-    pdf_file_ids: List[str]
+    file_ids: List[str]
     messages: List[Dict[str, Any]]
 
-class PDFUploadResponse(BaseModel):
+class FileUploadResponse(BaseModel):
     filename: str
     file_id: str
     message: str
@@ -170,7 +170,7 @@ class PDFUploadResponse(BaseModel):
     use_browser_storage: bool = False
     file_content: Optional[str] = None  # Base64 encoded file content for browser storage
 
-class PDFIndexingStatus(BaseModel):
+class FileIndexingStatus(BaseModel):
     file_id: str
     status: str  # "pending", "indexing", "completed", "failed"
     message: str
@@ -178,7 +178,7 @@ class PDFIndexingStatus(BaseModel):
 class ChatHistoryResponse(BaseModel):
     sessions: List[ChatSession]
 
-class PreIndexedPDFRequest(BaseModel):
+class PreIndexedFileRequest(BaseModel):
     file_id: str
     filename: str
     chunks: List[str]
@@ -391,15 +391,15 @@ async def index_file(file_content: bytes, file_id: str, filename: str):
 
 # Define PDF chat endpoint with enhanced RAG functionality
 @app.post("/api/chat-file")
-async def chat_with_file(request: PDFChatRequest):
+async def chat_with_file(request: FileChatRequest):
     try:
         # Validate file IDs
-        if not request.pdf_file_ids:
+        if not request.file_ids:
             raise HTTPException(status_code=400, detail="At least one file ID is required")
         
         # Check if all files are indexed
         missing_files = []
-        for file_id in request.pdf_file_ids:
+        for file_id in request.file_ids:
             if file_id not in vector_databases:
                 missing_files.append(file_id)
         
@@ -415,7 +415,7 @@ async def chat_with_file(request: PDFChatRequest):
             chat_sessions[session_id] = ChatSession(
                 session_id=session_id,
                 created_at=datetime.now().isoformat(),
-                pdf_file_ids=request.pdf_file_ids,
+                file_ids=request.file_ids,
                 messages=[]
             )
         
@@ -425,7 +425,7 @@ async def chat_with_file(request: PDFChatRequest):
         all_relevant_chunks = []
         file_names = []
         
-        for file_id in request.pdf_file_ids:
+        for file_id in request.file_ids:
             file_data = vector_databases[file_id]
             vector_db = file_data["vector_db"]
             
@@ -566,7 +566,7 @@ async def get_chat_session(session_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to get chat session: {str(e)}")
 
 # Define file upload endpoint
-@app.post("/api/upload-file", response_model=PDFUploadResponse)
+@app.post("/api/upload-file", response_model=FileUploadResponse)
 async def upload_file(file: UploadFile = File(...)):
     try:
         # Validate file type
@@ -591,7 +591,7 @@ async def upload_file(file: UploadFile = File(...)):
             import base64
             file_content_b64 = base64.b64encode(content).decode('utf-8')
             
-            return PDFUploadResponse(
+            return FileUploadResponse(
                 filename=filename,
                 file_id=file_id,
                 message=f"{get_file_type(filename).upper()} uploaded successfully (stored in browser)",
@@ -614,7 +614,7 @@ async def upload_file(file: UploadFile = File(...)):
             # Start indexing in the background
             asyncio.create_task(index_file(content, file_id, filename))
             
-            return PDFUploadResponse(
+            return FileUploadResponse(
                 filename=filename,
                 file_id=file_id,
                 message=f"{get_file_type(filename).upper()} uploaded successfully",
@@ -680,7 +680,7 @@ async def get_file_indexing_status(file_id: str):
             "message": "File not found"
         })
         
-        return PDFIndexingStatus(
+        return FileIndexingStatus(
             file_id=file_id,
             status=status_info["status"],
             message=status_info["message"]
@@ -695,7 +695,7 @@ async def health_check():
     return {"status": "ok", "readonly": IS_READONLY}
 
 @app.post("/api/pre-indexed-file")
-async def accept_pre_indexed_file(request: PreIndexedPDFRequest):
+async def accept_pre_indexed_file(request: PreIndexedFileRequest):
     """Accept pre-indexed file data from the frontend for browser-stored files"""
     try:
         # Create vector database from pre-indexed data

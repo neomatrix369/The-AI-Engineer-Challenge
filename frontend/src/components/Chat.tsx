@@ -2,25 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { api } from '@/services/api';
-
-interface PDFFile {
-  file_id: string;
-  original_filename: string;
-  uploaded_at: number;
-  indexing_status: string;
-  indexing_message: string;
-}
-
-interface ChatSession {
-  session_id: string;
-  created_at: string;
-  pdf_file_ids: string[];
-  messages: Array<{
-    role: string;
-    content: string;
-    timestamp: string;
-  }>;
-}
+import type { ChatSession, FileInfo } from '@/services/api';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -32,9 +14,9 @@ export default function Chat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [pdfs, setPdfs] = useState<PDFFile[]>([]);
-  const [selectedPDFs, setSelectedPDFs] = useState<string[]>([]);
-  const [chatMode, setChatMode] = useState<'general' | 'pdf'>('general');
+  const [files, setFiles] = useState<FileInfo[]>([]);
+  const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
+  const [chatMode, setChatMode] = useState<'general' | 'file'>('general');
   const [currentSessionId, setCurrentSessionId] = useState<string>('');
   const [chatHistory, setChatHistory] = useState<ChatSession[]>([]);
   const [showHistory, setShowHistory] = useState(false);
@@ -49,16 +31,16 @@ export default function Chat() {
     scrollToBottom();
   }, [messages]);
 
-  // Load PDFs and chat history on component mount
+  // Load files and chat history on component mount
   useEffect(() => {
-    loadPDFs();
+    loadFiles();
     loadChatHistory();
   }, []);
 
-  const loadPDFs = async () => {
+  const loadFiles = async () => {
     try {
       const response = await api.listFiles();
-      setPdfs(response.files);
+      setFiles(response.files);
     } catch (error) {
       console.error('Failed to load files:', error);
       setError('Failed to load files');
@@ -118,11 +100,11 @@ export default function Chat() {
     try {
       let stream: ReadableStream;
 
-      if (chatMode === 'pdf' && selectedPDFs.length > 0) {
+      if (chatMode === 'file' && selectedFiles.length > 0) {
         // Chat with files using RAG
         stream = await api.chatWithFile({
           user_message: userMessage,
-          pdf_file_ids: selectedPDFs,
+          file_ids: selectedFiles,
           session_id: currentSessionId,
         });
       } else {
@@ -162,7 +144,7 @@ export default function Chat() {
       }
 
       // Reload chat history after successful chat
-      if (chatMode === 'pdf') {
+      if (chatMode === 'file') {
         await loadChatHistory();
       }
     } catch (error) {
@@ -179,24 +161,24 @@ export default function Chat() {
     }
   };
 
-  const handlePDFSelection = (fileId: string, checked: boolean) => {
+  const handleFileSelection = (fileId: string, checked: boolean) => {
     if (checked) {
-      setSelectedPDFs(prev => [...prev, fileId]);
+      setSelectedFiles(prev => [...prev, fileId]);
     } else {
-      setSelectedPDFs(prev => prev.filter(id => id !== fileId));
+      setSelectedFiles(prev => prev.filter(id => id !== fileId));
     }
   };
 
   const handleGeneralChat = () => {
     setChatMode('general');
-    setSelectedPDFs([]);
+    setSelectedFiles([]);
     setCurrentSessionId('');
     setMessages([]);
     setError('');
   };
 
-  const handlePDFChat = () => {
-    setChatMode('pdf');
+  const handleFileChat = () => {
+    setChatMode('file');
     setMessages([]);
     setCurrentSessionId('');
     setError('');
@@ -206,9 +188,9 @@ export default function Chat() {
     try {
       const session = await api.getChatSession(sessionId);
       setMessages(session.messages as Message[]);
-      setSelectedPDFs(session.pdf_file_ids);
+      setSelectedFiles(session.file_ids);
       setCurrentSessionId(sessionId);
-      setChatMode('pdf');
+      setChatMode('file');
       setError('');
     } catch (error) {
       console.error('Failed to load chat session:', error);
@@ -222,10 +204,10 @@ export default function Chat() {
     setError('');
   };
 
-  const getSelectedPDFNames = () => {
-    return selectedPDFs.map(pdfId => {
-      const pdf = pdfs.find(p => p.file_id === pdfId);
-      return pdf ? pdf.original_filename : pdfId;
+  const getSelectedFileNames = () => {
+    return selectedFiles.map(fileId => {
+      const file = files.find(f => f.file_id === fileId);
+      return file ? file.original_filename : fileId;
     });
   };
 
@@ -233,7 +215,7 @@ export default function Chat() {
     return new Date(timestamp).toLocaleString();
   };
 
-  const readyPDFs = pdfs.filter(pdf => pdf.indexing_status === 'completed');
+  const readyFiles = files.filter(file => file.indexing_status === 'completed');
 
   return (
     <div className="flex flex-col h-[80vh] max-w-4xl mx-auto p-4">
@@ -251,14 +233,14 @@ export default function Chat() {
             General Chat
           </button>
           <button
-            onClick={handlePDFChat}
+            onClick={handleFileChat}
             className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              chatMode === 'pdf'
+              chatMode === 'file'
                 ? 'bg-blue-600 text-white'
                 : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
             }`}
           >
-            Chat with PDF
+            Chat with File
           </button>
         </div>
         
@@ -308,34 +290,34 @@ export default function Chat() {
         </div>
       )}
 
-      {/* PDF Selection (only show when in PDF mode) */}
-      {chatMode === 'pdf' && (
+      {/* File Selection (only show when in file mode) */}
+      {chatMode === 'file' && (
         <div className="mb-4">
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            Select PDFs to chat with:
+            Select Files to chat with:
           </label>
-          {readyPDFs.length === 0 ? (
+          {readyFiles.length === 0 ? (
             <div className="text-sm text-gray-500 bg-gray-50 p-3 rounded-lg">
-              No indexed PDFs available. Please upload and wait for indexing to complete.
+              No indexed files available. Please upload and wait for indexing to complete.
             </div>
           ) : (
             <div className="space-y-2 max-h-32 overflow-y-auto">
-              {readyPDFs.map((pdf) => (
-                <label key={pdf.file_id} className="flex items-center space-x-2 cursor-pointer">
+              {readyFiles.map((file) => (
+                <label key={file.file_id} className="flex items-center space-x-2 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={selectedPDFs.includes(pdf.file_id)}
-                    onChange={(e) => handlePDFSelection(pdf.file_id, e.target.checked)}
+                    checked={selectedFiles.includes(file.file_id)}
+                    onChange={(e) => handleFileSelection(file.file_id, e.target.checked)}
                     className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                   />
-                  <span className="text-sm text-gray-700">{pdf.original_filename}</span>
+                  <span className="text-sm text-gray-700">{file.original_filename}</span>
                 </label>
               ))}
             </div>
           )}
-          {selectedPDFs.length > 0 && (
+          {selectedFiles.length > 0 && (
             <div className="mt-2 text-sm text-blue-600">
-              Chatting with: <strong>{getSelectedPDFNames().join(', ')}</strong>
+              Chatting with: <strong>{getSelectedFileNames().join(', ')}</strong>
             </div>
           )}
         </div>
@@ -352,15 +334,15 @@ export default function Chat() {
       <div className="flex-1 overflow-y-auto mb-4 space-y-4 bg-gray-50 rounded-lg p-4">
         {messages.length === 0 && (
           <div className="text-center text-gray-500 py-8">
-            {chatMode === 'pdf' && selectedPDFs.length === 0 ? (
+            {chatMode === 'file' && selectedFiles.length === 0 ? (
               <div>
-                <p className="mb-2">Select one or more PDFs above to start chatting!</p>
-                <p className="text-sm">You can select multiple PDFs to chat with them together.</p>
+                <p className="mb-2">Select one or more files above to start chatting!</p>
+                <p className="text-sm">You can select multiple files to chat with them together.</p>
               </div>
             ) : (
               <div>
                 <p className="mb-2">Start a conversation by typing a message below.</p>
-                {chatMode === 'pdf' && (
+                {chatMode === 'file' && (
                   <p className="text-sm">Your chat history will be saved automatically.</p>
                 )}
               </div>
@@ -408,16 +390,16 @@ export default function Chat() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder={
-            chatMode === 'pdf' && selectedPDFs.length === 0
-              ? "Select PDFs first..."
+            chatMode === 'file' && selectedFiles.length === 0
+              ? "Select files first..."
               : "Type your message..."
           }
           className="flex-1 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          disabled={isLoading || (chatMode === 'pdf' && selectedPDFs.length === 0)}
+          disabled={isLoading || (chatMode === 'file' && selectedFiles.length === 0)}
         />
         <button
           type="submit"
-          disabled={isLoading || !input.trim() || (chatMode === 'pdf' && selectedPDFs.length === 0)}
+          disabled={isLoading || !input.trim() || (chatMode === 'file' && selectedFiles.length === 0)}
           className="px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
         >
           {isLoading ? (

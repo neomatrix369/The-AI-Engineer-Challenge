@@ -8,7 +8,7 @@ export interface PDFChunk {
   page: number;
 }
 
-export class PDFProcessor {
+export class FileProcessor {
   /**
    * Extract text from a PDF file
    */

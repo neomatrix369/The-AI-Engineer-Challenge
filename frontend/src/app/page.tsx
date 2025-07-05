@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Chat from '@/components/Chat';
-import FileUpload from '@/components/PDFUpload';
+import FileUpload from '@/components/FileUpload';
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState<'upload' | 'chat'>('upload');

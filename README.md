@@ -236,3 +236,68 @@ The application will be available at `http://localhost:3000` and will connect to
 ---
 
 For more details on each feature and development workflow, see the `MERGE.md` and `docs/PLAN.md` files.
+
+# The AI Engineer Challenge
+
+A modern RAG (Retrieval-Augmented Generation) chat application that supports multiple file formats including PDF, Markdown, Text, and CSV files.
+
+## Features
+
+- **Multi-Format Support**: Upload and chat with PDF, Markdown (.md), Text (.txt), and CSV files
+- **Advanced RAG**: Enhanced retrieval with chat history and multi-file support
+- **Modern UI**: Clean, responsive interface built with Next.js and Tailwind CSS
+- **Real-time Chat**: Stream responses with typing indicators
+- **File Management**: Upload, index, and manage multiple files
+- **Chat History**: Persistent chat sessions with file context
+- **Browser Storage**: Works in read-only environments (like Vercel) with client-side processing
+
+## Tech Stack
+
+### Frontend
+- **Next.js 14** with App Router
+- **TypeScript** for type safety
+- **Tailwind CSS** for styling
+- **PDF.js** for client-side PDF processing
+- **Browser localStorage** for file storage in read-only environments
+
+### Backend
+- **FastAPI** with async support
+- **OpenAI API** for embeddings and chat
+- **Custom aimakerspace library** for AI utilities
+- **Vector database** for semantic search
+- **Multi-format processing** (PDF, MD, TXT, CSV)
+
+## Quick Start
+
+### Backend Setup
+```bash
+cd api
+pip install -r requirements.txt
+PYTHONPATH=. uvicorn app:app --reload --host 0.0.0.0 --port 8000
+```
+
+### Frontend Setup
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+## File Format Support
+
+- **PDF**: Full text extraction and semantic indexing
+- **Markdown (.md)**: Direct text processing with formatting preserved
+- **Text (.txt)**: Simple text file processing
+- **CSV**: Structured data processing with column headers
+
+## Architecture
+
+The application uses a hybrid approach:
+- **Server-side processing** for full environments
+- **Client-side processing** with browser storage for read-only environments
+- **Real-time streaming** for responsive chat experience
+- **Session management** for persistent conversations
+
+## Development
+
+The project follows a modular architecture with clear separation between frontend and backend components. The `aimakerspace` library provides custom AI utilities for enhanced functionality.
