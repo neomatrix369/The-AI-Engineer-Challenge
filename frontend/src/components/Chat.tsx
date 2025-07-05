@@ -169,52 +169,6 @@ export default function Chat() {
     }
   };
 
-  const handleDeleteFile = async (fileId: string) => {
-    try {
-      setIsLoading(true);
-      await api.deleteFile(fileId);
-      
-      // Remove from local state
-      setFiles(prev => prev.filter(file => file.file_id !== fileId));
-      
-      // Remove from selected files if it was selected
-      setSelectedFiles(prev => prev.filter(id => id !== fileId));
-      
-      // Reload files to get updated list
-      await loadFiles();
-      
-      setError('');
-    } catch (error) {
-      console.error('Failed to delete file:', error);
-      setError(`Failed to delete file: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleDeleteAllFiles = async () => {
-    if (!confirm('Are you sure you want to delete all files? This action cannot be undone.')) {
-      return;
-    }
-    
-    try {
-      setIsLoading(true);
-      const deletePromises = files.map(file => api.deleteFile(file.file_id));
-      await Promise.all(deletePromises);
-      
-      // Clear all files and selections
-      setFiles([]);
-      setSelectedFiles([]);
-      
-      setError('');
-    } catch (error) {
-      console.error('Failed to delete all files:', error);
-      setError(`Failed to delete all files: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const handleGeneralChat = () => {
     setChatMode('general');
     setSelectedFiles([]);
@@ -339,21 +293,9 @@ export default function Chat() {
       {/* File Selection (only show when in file mode) */}
       {chatMode === 'file' && (
         <div className="mb-4">
-          <div className="flex items-center justify-between mb-2">
-            <label className="block text-sm font-medium text-gray-700">
-              Select Files to chat with:
-            </label>
-            {readyFiles.length > 0 && (
-              <button
-                onClick={handleDeleteAllFiles}
-                disabled={isLoading}
-                className="px-3 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                title="Delete all files"
-              >
-                Delete All
-              </button>
-            )}
-          </div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Select Files to chat with:
+          </label>
           {readyFiles.length === 0 ? (
             <div className="text-sm text-gray-500 bg-gray-50 p-3 rounded-lg">
               No indexed files available. Please upload and wait for indexing to complete.
@@ -361,25 +303,15 @@ export default function Chat() {
           ) : (
             <div className="space-y-2 max-h-32 overflow-y-auto">
               {readyFiles.map((file) => (
-                <div key={file.file_id} className="flex items-center justify-between p-2 bg-white rounded border">
-                  <label className="flex items-center space-x-2 cursor-pointer flex-1">
-                    <input
-                      type="checkbox"
-                      checked={selectedFiles.includes(file.file_id)}
-                      onChange={(e) => handleFileSelection(file.file_id, e.target.checked)}
-                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-sm text-gray-700">{file.original_filename}</span>
-                  </label>
-                  <button
-                    onClick={() => handleDeleteFile(file.file_id)}
-                    disabled={isLoading}
-                    className="ml-2 px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    title="Delete file"
-                  >
-                    🗑️
-                  </button>
-                </div>
+                <label key={file.file_id} className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedFiles.includes(file.file_id)}
+                    onChange={(e) => handleFileSelection(file.file_id, e.target.checked)}
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-700">{file.original_filename}</span>
+                </label>
               ))}
             </div>
           )}

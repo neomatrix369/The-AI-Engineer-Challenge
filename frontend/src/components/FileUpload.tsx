@@ -2,20 +2,14 @@
 
 import { useState, useEffect } from 'react';
 import { api } from '@/services/api';
-
-interface PDFFile {
-  file_id: string;
-  original_filename: string;
-  uploaded_at: number;
-  indexing_status: string;
-  indexing_message: string;
-}
+import type { FileInfo } from '@/services/api';
 
 export default function FileUpload() {
-  const [files, setFiles] = useState<PDFFile[]>([]);
+  const [files, setFiles] = useState<FileInfo[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Load existing files on component mount
   useEffect(() => {
@@ -93,6 +87,51 @@ export default function FileUpload() {
       setUploadMessage(`Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  const handleDeleteFile = async (fileId: string) => {
+    try {
+      setIsDeleting(true);
+      await api.deleteFile(fileId);
+      
+      // Remove from local state
+      setFiles(prev => prev.filter(file => file.file_id !== fileId));
+      
+      setUploadMessage(`File deleted successfully`);
+      
+      // Clear message after 3 seconds
+      setTimeout(() => setUploadMessage(''), 3000);
+    } catch (error) {
+      console.error('Failed to delete file:', error);
+      setUploadMessage(`Failed to delete file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleDeleteAllFiles = async () => {
+    if (!confirm('Are you sure you want to delete all files? This action cannot be undone.')) {
+      return;
+    }
+    
+    try {
+      setIsDeleting(true);
+      const deletePromises = files.map(file => api.deleteFile(file.file_id));
+      await Promise.all(deletePromises);
+      
+      // Clear all files
+      setFiles([]);
+      
+      setUploadMessage(`All files deleted successfully`);
+      
+      // Clear message after 3 seconds
+      setTimeout(() => setUploadMessage(''), 3000);
+    } catch (error) {
+      console.error('Failed to delete all files:', error);
+      setUploadMessage(`Failed to delete all files: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -182,7 +221,19 @@ export default function FileUpload() {
 
       {/* File List Section */}
       <div>
-        <h3 className="text-lg font-semibold mb-4 text-gray-700">Uploaded Files</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-700">Uploaded Files</h3>
+          {files.length > 0 && (
+            <button
+              onClick={handleDeleteAllFiles}
+              disabled={isDeleting}
+              className="px-3 py-1 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              title="Delete all files"
+            >
+              Delete All
+            </button>
+          )}
+        </div>
         
         {isLoading ? (
           <div className="text-center py-4">
@@ -216,8 +267,16 @@ export default function FileUpload() {
                     </p>
                   )}
                 </div>
-                <div className="ml-4">
+                <div className="flex items-center space-x-3">
                   {getStatusBadge(file.indexing_status)}
+                  <button
+                    onClick={() => handleDeleteFile(file.file_id)}
+                    disabled={isDeleting}
+                    className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    title="Delete file"
+                  >
+                    🗑️
+                  </button>
                 </div>
               </div>
             ))}
