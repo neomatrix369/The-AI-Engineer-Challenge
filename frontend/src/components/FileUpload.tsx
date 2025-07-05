@@ -35,14 +35,28 @@ export default function FileUpload({ onFileListChange }: FileUploadProps) {
 
   // Set up polling for indexing status updates
   useEffect(() => {
-    const interval = setInterval(() => {
+    const interval = setInterval(async () => {
       // Only poll if there are files that are still being indexed
       const hasIndexingFiles = files.some(file => 
         file.indexing_status === 'pending' || file.indexing_status === 'indexing'
       );
       
       if (hasIndexingFiles) {
-        loadFiles();
+        // Check for browser-stored files that need indexing
+        const browserFiles = api.getBrowserStoredFiles();
+        for (const [fileId, fileData] of Object.entries(browserFiles)) {
+          const file = files.find(f => f.file_id === fileId);
+          if (file && file.indexing_status === 'pending') {
+            // Trigger indexing for this file
+            try {
+              await api.indexBrowserStoredFile(fileId, fileData.filename, fileData.content);
+            } catch (error) {
+              console.error('Failed to index browser-stored file:', error);
+            }
+          }
+        }
+        
+        await loadFiles();
       }
     }, 2000); // Poll every 2 seconds
 
@@ -177,6 +191,12 @@ export default function FileUpload({ onFileListChange }: FileUploadProps) {
         return (
           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
             Failed
+          </span>
+        );
+      case 'unknown':
+        return (
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+            Unknown
           </span>
         );
       default:

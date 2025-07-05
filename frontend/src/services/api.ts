@@ -248,13 +248,31 @@ export const api = {
     const healthResponse = await this.healthCheck();
     if (healthResponse.readonly) {
       const browserFiles = getBrowserStoredFiles();
-      const browserFilesList: Array<FileInfo> = Object.entries(browserFiles).map(([fileId, fileData]): FileInfo => ({
-        file_id: fileId,
-        original_filename: fileData.filename,
-        uploaded_at: fileData.uploaded_at / 1000, // Convert to Unix timestamp
-        indexing_status: 'unknown', // We'll check the actual status
-        indexing_message: 'Stored in browser'
-      }));
+      const browserFilesList: Array<FileInfo> = [];
+      
+      for (const [fileId, fileData] of Object.entries(browserFiles)) {
+        // Check if this file is already indexed on the backend
+        let indexingStatus = 'unknown';
+        let indexingMessage = 'Stored in browser';
+        
+        try {
+          const statusResponse = await this.getFileIndexingStatus(fileId);
+          indexingStatus = statusResponse.status;
+          indexingMessage = statusResponse.message;
+        } catch (error) {
+          // File not found on backend, needs indexing
+          indexingStatus = 'pending';
+          indexingMessage = 'Needs indexing';
+        }
+        
+        browserFilesList.push({
+          file_id: fileId,
+          original_filename: fileData.filename,
+          uploaded_at: fileData.uploaded_at / 1000, // Convert to Unix timestamp
+          indexing_status: indexingStatus,
+          indexing_message: indexingMessage
+        });
+      }
 
       // Merge server and browser files, avoiding duplicates
       const serverFileIds = new Set(result.files.map((file: FileInfo) => file.file_id));

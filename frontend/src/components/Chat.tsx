@@ -521,7 +521,14 @@ export default function Chat({ fileListVersion = 0 }: ChatProps) {
     return new Date(timestamp).toLocaleString();
   };
 
-  const readyFiles = files.filter(file => file.indexing_status === 'completed');
+  const readyFiles = files.filter(file => {
+    // In read-only environments, include files with "unknown" status as they are browser-stored
+    // and should be available for chat
+    if (file.indexing_status === 'completed' || file.indexing_status === 'unknown') {
+      return true;
+    }
+    return false;
+  });
 
   return (
     <div className="flex flex-col h-[80vh] max-w-4xl mx-auto p-4">
