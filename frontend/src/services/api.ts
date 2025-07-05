@@ -193,6 +193,8 @@ export const api = {
 
   async indexBrowserStoredFile(fileId: string, filename: string, base64Content: string): Promise<void> {
     try {
+      console.log(`🔍 Starting indexing for browser-stored file: ${filename} (${fileId})`);
+      
       // Convert base64 to File object
       const binaryString = atob(base64Content);
       const bytes = new Uint8Array(binaryString.length);
@@ -201,11 +203,17 @@ export const api = {
       }
       const file = new File([bytes], filename, { type: 'application/octet-stream' });
 
+      console.log(`📁 File created: ${file.name} (${file.size} bytes)`);
+
       // Import fileProcessor dynamically to avoid SSR issues
       const { FileProcessor } = await import('@/utils/fileProcessor');
       
+      console.log(`⚙️ Processing file with FileProcessor...`);
+      
       // Process the file
       const { chunks, embeddings } = await FileProcessor.processFile(file);
+      
+      console.log(`✅ File processed: ${chunks.length} chunks, ${embeddings.length} embeddings`);
       
       // Send pre-indexed data to backend
       const request: PreIndexedFileRequest = {
@@ -214,6 +222,8 @@ export const api = {
         chunks: chunks,
         embeddings: embeddings
       };
+
+      console.log(`📤 Sending pre-indexed data to backend...`);
 
       const response = await fetch(`${API_BASE_URL}/api/pre-indexed-file`, {
         method: 'POST',
@@ -225,12 +235,14 @@ export const api = {
 
       if (!response.ok) {
         const errorText = await response.text();
+        console.error(`❌ Backend indexing failed: ${errorText}`);
         throw new Error(`Failed to index browser-stored file: ${errorText}`);
       }
 
-      console.log(`Successfully indexed browser-stored file: ${filename}`);
+      const result = await response.json();
+      console.log(`✅ Successfully indexed browser-stored file: ${filename}`, result);
     } catch (error) {
-      console.error('Error indexing browser-stored file:', error);
+      console.error('❌ Error indexing browser-stored file:', error);
       // Don't throw here as this is called asynchronously
     }
   },

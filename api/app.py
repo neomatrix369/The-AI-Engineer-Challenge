@@ -458,16 +458,32 @@ async def chat_with_file(request: FileChatRequest):
         if not request.file_ids:
             raise HTTPException(status_code=400, detail="At least one file ID is required")
         
+        print(f"🔍 Chat request for files: {request.file_ids}")
+        print(f"📊 Available vector databases: {list(vector_databases.keys())}")
+        print(f"📊 Available indexing status: {list(indexing_status.keys())}")
+        
         # Check if all files are indexed
         missing_files = []
+        failed_files = []
         for file_id in request.file_ids:
             if file_id not in vector_databases:
-                missing_files.append(file_id)
+                # Check if file has failed indexing
+                status_info = indexing_status.get(file_id, {"status": "unknown", "message": "File not found"})
+                if status_info["status"] == "failed":
+                    failed_files.append(f"{file_id} (failed: {status_info['message']})")
+                else:
+                    missing_files.append(f"{file_id} (status: {status_info['status']})")
         
-        if missing_files:
+        if missing_files or failed_files:
+            error_details = []
+            if missing_files:
+                error_details.append(f"Missing/not indexed: {', '.join(missing_files)}")
+            if failed_files:
+                error_details.append(f"Failed indexing: {', '.join(failed_files)}")
+            
             raise HTTPException(
                 status_code=400, 
-                detail=f"Files not found or not indexed: {', '.join(missing_files)}"
+                detail=f"Files not found or not indexed: {'; '.join(error_details)}"
             )
         
         # Get or create chat session
@@ -759,13 +775,28 @@ async def health_check():
 async def accept_pre_indexed_file(request: PreIndexedFileRequest):
     """Accept pre-indexed file data from the frontend for browser-stored files"""
     try:
+        print(f"🔍 Processing pre-indexed file: {request.file_id} ({request.filename})")
+        print(f"📊 Received {len(request.chunks)} chunks and {len(request.embeddings)} embeddings")
+        
+        # Validate input
+        if not request.chunks or not request.embeddings:
+            raise ValueError("No chunks or embeddings provided")
+        
+        if len(request.chunks) != len(request.embeddings):
+            raise ValueError(f"Mismatch: {len(request.chunks)} chunks vs {len(request.embeddings)} embeddings")
+        
         # Create vector database from pre-indexed data
         vector_db = VectorDatabase()
         
         # Convert embeddings to numpy arrays and insert into vector database
         import numpy as np
-        for chunk, embedding in zip(request.chunks, request.embeddings):
-            vector_db.insert(chunk, np.array(embedding))
+        for i, (chunk, embedding) in enumerate(zip(request.chunks, request.embeddings)):
+            try:
+                vector_db.insert(chunk, np.array(embedding))
+                print(f"✅ Inserted chunk {i+1}/{len(request.chunks)}")
+            except Exception as e:
+                print(f"❌ Error inserting chunk {i+1}: {str(e)}")
+                raise
         
         # Store the vector database in memory for quick access
         vector_databases[request.file_id] = {
@@ -779,9 +810,11 @@ async def accept_pre_indexed_file(request: PreIndexedFileRequest):
             "message": f"Successfully indexed {len(request.chunks)} text chunks from browser storage"
         }
         
+        print(f"✅ Successfully indexed file {request.file_id} with {len(request.chunks)} chunks")
         return {"message": "File indexed successfully", "chunks_count": len(request.chunks)}
         
     except Exception as e:
+        print(f"❌ Error indexing file {request.file_id}: {str(e)}")
         # Update status to failed
         indexing_status[request.file_id] = {
             "status": "failed",
