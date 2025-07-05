@@ -4,7 +4,7 @@ A modern Next.js frontend for a RAG (Retrieval-Augmented Generation) chat applic
 
 ## Features
 
-- **Multi-Format File Upload**: Support for PDF, Markdown (.md), Text (.txt), and CSV files
+- **Multi-Format File Upload**: Support for PDF, Markdown (.md), Text (.txt), CSV, and JSON files
 - **Real-time Chat Interface**: Stream responses with typing indicators
 - **File Management**: Upload, view, and select files for chat
 - **Chat History**: Persistent sessions with file context
@@ -25,6 +25,7 @@ A modern Next.js frontend for a RAG (Retrieval-Augmented Generation) chat applic
 - **Markdown (.md)**: Direct text processing
 - **Text (.txt)**: Simple text file processing
 - **CSV**: Structured data processing with column headers
+- **JSON**: Structured data processing with hierarchical object flattening
 
 ## Development
 

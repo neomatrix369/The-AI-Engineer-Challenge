@@ -56,6 +56,43 @@ export class FileProcessor {
   }
 
   /**
+   * Extract text from JSON files
+   */
+  static async extractTextFromJSON(file: File): Promise<string[]> {
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      
+      // Convert JSON to readable text chunks
+      const textChunks: string[] = [];
+      
+      const flattenJSON = (obj: any, path: string = ""): void => {
+        if (typeof obj === 'object' && obj !== null) {
+          if (Array.isArray(obj)) {
+            for (let i = 0; i < obj.length; i++) {
+              const newPath = path ? `${path}[${i}]` : `[${i}]`;
+              flattenJSON(obj[i], newPath);
+            }
+          } else {
+            for (const [key, value] of Object.entries(obj)) {
+              const newPath = path ? `${path}.${key}` : key;
+              flattenJSON(value, newPath);
+            }
+          }
+        } else {
+          textChunks.push(`${path}: ${obj}`);
+        }
+      };
+      
+      flattenJSON(data);
+      return textChunks;
+    } catch (error) {
+      console.error('Error extracting text from JSON:', error);
+      throw new Error('Failed to extract text from JSON file');
+    }
+  }
+
+  /**
    * Split text into chunks similar to the backend CharacterTextSplitter
    */
   static splitTextIntoChunks(texts: string[], chunkSize: number = 1000, chunkOverlap: number = 200): string[] {
@@ -148,6 +185,9 @@ export class FileProcessor {
     } else if (fileType === 'csv') {
       // Extract text from CSV files
       textChunks = await this.extractTextFromFile(file);
+    } else if (fileType === 'json') {
+      // Extract text from JSON files
+      textChunks = await this.extractTextFromJSON(file);
     } else {
       throw new Error(`Unsupported file type: ${fileType}`);
     }

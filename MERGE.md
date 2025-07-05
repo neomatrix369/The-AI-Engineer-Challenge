@@ -186,3 +186,38 @@ To test your newly merged multi-file support:
 ---
 
 **Remember**: This was a significant refactor that touches many parts of the codebase. Take your time reviewing the changes and testing thoroughly! 🚀 
+
+# Adding JSON support would be straightforward:
+def extract_json_content(file_content: bytes) -> List[str]:
+    """Extract text content from JSON files"""
+    try:
+        import json
+        data = json.loads(file_content.decode('utf-8'))
+        
+        # Convert JSON to readable text chunks
+        text_chunks = []
+        
+        def flatten_json(obj, path=""):
+            if isinstance(obj, dict):
+                for key, value in obj.items():
+                    new_path = f"{path}.{key}" if path else key
+                    flatten_json(value, new_path)
+            elif isinstance(obj, list):
+                for i, item in enumerate(obj):
+                    new_path = f"{path}[{i}]"
+                    flatten_json(item, new_path)
+            else:
+                text_chunks.append(f"{path}: {obj}")
+        
+        flatten_json(data)
+        return text_chunks
+    except Exception as e:
+        raise ValueError(f"Could not parse JSON: {str(e)}")
+
+SUPPORTED_EXTENSIONS = {'.pdf', '.md', '.txt', '.csv', '.json'}
+
+def get_file_type(filename: str) -> str:
+    ext = filename.lower().split('.')[-1]
+    if ext == 'json':
+        return 'json'
+    # ... existing logic 

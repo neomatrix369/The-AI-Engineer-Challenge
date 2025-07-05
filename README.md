@@ -243,7 +243,7 @@ A modern RAG (Retrieval-Augmented Generation) chat application that supports mul
 
 ## Features
 
-- **Multi-Format Support**: Upload and chat with PDF, Markdown (.md), Text (.txt), and CSV files
+- **Multi-Format Support**: Upload and chat with PDF, Markdown, Text, CSV, and JSON files
 - **Advanced RAG**: Enhanced retrieval with chat history and multi-file support
 - **Modern UI**: Clean, responsive interface built with Next.js and Tailwind CSS
 - **Real-time Chat**: Stream responses with typing indicators
@@ -289,6 +289,7 @@ npm run dev
 - **Markdown (.md)**: Direct text processing with formatting preserved
 - **Text (.txt)**: Simple text file processing
 - **CSV**: Structured data processing with column headers
+- **JSON**: Structured data processing with hierarchical object flattening
 
 ## Architecture
 

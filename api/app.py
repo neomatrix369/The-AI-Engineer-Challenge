@@ -59,7 +59,7 @@ app.add_middleware(
 )
 
 # File type detection and validation
-SUPPORTED_EXTENSIONS = {'.pdf', '.md', '.txt', '.csv'}
+SUPPORTED_EXTENSIONS = {'.pdf', '.md', '.txt', '.csv', '.json'}
 
 def get_file_type(filename: str) -> str:
     """Detect file type based on extension"""
@@ -70,6 +70,8 @@ def get_file_type(filename: str) -> str:
         return 'text'
     elif ext == 'csv':
         return 'csv'
+    elif ext == 'json':
+        return 'json'
     return 'unknown'
 
 def is_supported_file(filename: str) -> bool:
@@ -142,6 +144,54 @@ def extract_csv_content(file_content: bytes) -> List[str]:
             return text_chunks
         except:
             raise ValueError("Could not decode CSV file content")
+
+def extract_json_content(file_content: bytes) -> List[str]:
+    """Extract text content from JSON files"""
+    try:
+        import json
+        data = json.loads(file_content.decode('utf-8'))
+        
+        # Convert JSON to readable text chunks
+        text_chunks = []
+        
+        def flatten_json(obj, path=""):
+            if isinstance(obj, dict):
+                for key, value in obj.items():
+                    new_path = f"{path}.{key}" if path else key
+                    flatten_json(value, new_path)
+            elif isinstance(obj, list):
+                for i, item in enumerate(obj):
+                    new_path = f"{path}[{i}]"
+                    flatten_json(item, new_path)
+            else:
+                text_chunks.append(f"{path}: {obj}")
+        
+        flatten_json(data)
+        return text_chunks
+    except UnicodeDecodeError:
+        # Try with different encoding if UTF-8 fails
+        try:
+            data = json.loads(file_content.decode('latin-1'))
+            text_chunks = []
+            
+            def flatten_json(obj, path=""):
+                if isinstance(obj, dict):
+                    for key, value in obj.items():
+                        new_path = f"{path}.{key}" if path else key
+                        flatten_json(value, new_path)
+                elif isinstance(obj, list):
+                    for i, item in enumerate(obj):
+                        new_path = f"{path}[{i}]"
+                        flatten_json(item, new_path)
+                else:
+                    text_chunks.append(f"{path}: {obj}")
+            
+            flatten_json(data)
+            return text_chunks
+        except:
+            raise ValueError("Could not decode JSON file content")
+    except Exception as e:
+        raise ValueError(f"Could not parse JSON: {str(e)}")
 
 # Define the data model for chat requests using Pydantic
 # This ensures incoming request data is properly validated
@@ -328,6 +378,17 @@ async def index_file(file_content: bytes, file_id: str, filename: str):
         elif file_type == 'csv':
             # Handle CSV files
             documents = extract_csv_content(file_content)
+            
+            if not documents:
+                raise ValueError("No text could be extracted from the file")
+            
+            # Split text into chunks
+            splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+            chunks = splitter.split_texts(documents)
+            
+        elif file_type == 'json':
+            # Handle JSON files
+            documents = extract_json_content(file_content)
             
             if not documents:
                 raise ValueError("No text could be extracted from the file")

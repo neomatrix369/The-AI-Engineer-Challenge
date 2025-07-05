@@ -4,7 +4,7 @@ A FastAPI backend for a RAG (Retrieval-Augmented Generation) chat application th
 
 ## Features
 
-- **Multi-Format Processing**: Support for PDF, Markdown (.md), Text (.txt), and CSV files
+- **Multi-Format Processing**: Support for PDF, Markdown (.md), Text (.txt), CSV, and JSON files
 - **Advanced RAG**: Enhanced retrieval with chat history and multi-file support
 - **Vector Database**: Semantic search and indexing
 - **Real-time Streaming**: Stream chat responses
@@ -17,7 +17,7 @@ A FastAPI backend for a RAG (Retrieval-Augmented Generation) chat application th
 - **OpenAI API** for embeddings and chat
 - **Custom aimakerspace library** for AI utilities
 - **Vector database** for semantic search
-- **Multi-format processing** (PDF, MD, TXT, CSV)
+- **Multi-format processing** (PDF, MD, TXT, CSV, JSON)
 
 ## API Endpoints
 
@@ -35,6 +35,7 @@ A FastAPI backend for a RAG (Retrieval-Augmented Generation) chat application th
 - **Markdown (.md)**: Direct text processing with formatting preserved
 - **Text (.txt)**: Simple text file processing
 - **CSV**: Structured data processing with column headers
+- **JSON**: Structured data processing with hierarchical object flattening
 
 ## Development
 
