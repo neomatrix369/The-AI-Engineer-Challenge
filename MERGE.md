@@ -16,6 +16,7 @@ This document provides instructions for merging the `feature/improved-rag-step4`
 - ✅ **File Deletion**: Added complete file deletion functionality with UI controls in Upload Files tab
 - ✅ **Component Synchronization**: Chat component now reflects file deletions from Upload tab
 - ✅ **Memory Management**: Fixed backend to properly remove files from all storage locations
+- ✅ **JSON File Support**: Added comprehensive JSON file processing with hierarchical flattening
 
 ## 🎨 What This Means for Users
 
@@ -24,6 +25,7 @@ Your app now speaks the language of **all the files**! 📁✨
 - **Markdown** (.md) - For all your documentation needs
 - **Text files** (.txt) - Simple and clean
 - **CSV files** (.csv) - For all your data analysis chats
+- **JSON files** (.json) - For structured data and API responses
 
 ## 🔄 Merge Methods
 
@@ -52,7 +54,7 @@ Your app now speaks the language of **all the files**! 📁✨
      - Updated documentation to reflect multi-format support
      
      ## 🧪 Testing Checklist
-     - [ ] Test file upload with different formats (PDF, MD, TXT, CSV)
+     - [ ] Test file upload with different formats (PDF, MD, TXT, CSV, JSON)
      - [ ] Test file selection and multi-file chat
      - [ ] Test chat history with file context
      - [ ] Test browser storage functionality
@@ -67,6 +69,7 @@ Your app now speaks the language of **all the files**! 📁✨
      - [ ] Verify deleted files don't reappear after page refresh
      - [ ] Verify Chat component reflects file deletions from Upload tab
      - [ ] Test component synchronization between Upload and Chat tabs
+     - [ ] Test JSON file processing with hierarchical data flattening
      ```
 
 3. **Review and Merge:**
@@ -96,7 +99,7 @@ Your app now speaks the language of **all the files**! 📁✨
      - Updated documentation to reflect multi-format support
      
      ## 🧪 Testing Checklist
-     - [ ] Test file upload with different formats (PDF, MD, TXT, CSV)
+     - [ ] Test file upload with different formats (PDF, MD, TXT, CSV, JSON)
      - [ ] Test file selection and multi-file chat
      - [ ] Test chat history with file context
      - [ ] Test browser storage functionality
@@ -110,7 +113,8 @@ Your app now speaks the language of **all the files**! 📁✨
      - [ ] Test deletion of both server-stored and browser-stored files
      - [ ] Verify deleted files don't reappear after page refresh
      - [ ] Verify Chat component reflects file deletions from Upload tab
-     - [ ] Test component synchronization between Upload and Chat tabs" \
+     - [ ] Test component synchronization between Upload and Chat tabs
+     - [ ] Test JSON file processing with hierarchical data flattening" \
      --base main \
      --head feature/improved-rag-step4
    ```
@@ -161,7 +165,7 @@ To test your newly merged multi-file support:
    ```
 
 3. **Test the multi-format magic:**
-   - Upload different file types (PDF, MD, TXT, CSV)
+   - Upload different file types (PDF, MD, TXT, CSV, JSON)
    - Select multiple files for chat
    - Verify the UI text is all updated
    - Test chat history with file context
@@ -170,6 +174,7 @@ To test your newly merged multi-file support:
    - Test "Delete All" functionality with confirmation dialog in Upload Files tab
    - Verify deleted files don't reappear after page refresh
    - Verify Chat component reflects file deletions from Upload tab
+   - Test JSON file processing with complex hierarchical data
 
 ## 🎯 Key Benefits of This Refactor
 
@@ -182,6 +187,7 @@ To test your newly merged multi-file support:
 - **Flexible Storage**: Works with both server and browser storage
 - **Component Synchronization**: Chat component reflects file changes from Upload tab
 - **Proper Memory Management**: Files are completely removed from all storage locations
+- **Comprehensive Format Support**: Now supports PDF, MD, TXT, CSV, and JSON files
 
 ---
 
