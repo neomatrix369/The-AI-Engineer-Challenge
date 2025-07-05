@@ -733,20 +733,46 @@ async def accept_pre_indexed_file(request: PreIndexedFileRequest):
 async def delete_file(file_id: str):
     """Delete a file from memory and vector database"""
     try:
-        # Check if file exists in vector database
+        deleted = False
+        
+        # Remove from vector database
         if file_id in vector_databases:
-            # Remove from vector database
             del vector_databases[file_id]
-            
-            # Remove from chat sessions that reference this file
-            for session_id in list(chat_sessions.keys()):
-                session = chat_sessions[session_id]
-                if file_id in session.file_ids:
-                    session.file_ids.remove(file_id)
-                    # If no files left in session, remove the session
-                    if not session.file_ids:
-                        del chat_sessions[session_id]
-            
+            deleted = True
+        
+        # Remove from indexing status
+        if file_id in indexing_status:
+            del indexing_status[file_id]
+            deleted = True
+        
+        # Remove from memory stored files (read-only mode)
+        if file_id in memory_stored_files:
+            del memory_stored_files[file_id]
+            deleted = True
+        
+        # Remove from disk (non-read-only mode)
+        if not IS_READONLY:
+            # Find and delete the file from disk
+            for extension in SUPPORTED_EXTENSIONS:
+                file_path = UPLOADS_DIR / f"{file_id}_*{extension}"
+                for matching_file in UPLOADS_DIR.glob(f"{file_id}_*{extension}"):
+                    try:
+                        matching_file.unlink()
+                        deleted = True
+                        break
+                    except FileNotFoundError:
+                        pass
+        
+        # Remove from chat sessions that reference this file
+        for session_id in list(chat_sessions.keys()):
+            session = chat_sessions[session_id]
+            if file_id in session.file_ids:
+                session.file_ids.remove(file_id)
+                # If no files left in session, remove the session
+                if not session.file_ids:
+                    del chat_sessions[session_id]
+        
+        if deleted:
             return {"message": f"File {file_id} deleted successfully"}
         else:
             raise HTTPException(status_code=404, detail="File not found")

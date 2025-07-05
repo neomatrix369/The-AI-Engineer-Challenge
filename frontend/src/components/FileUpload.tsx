@@ -4,7 +4,11 @@ import { useState, useEffect } from 'react';
 import { api } from '@/services/api';
 import type { FileInfo } from '@/services/api';
 
-export default function FileUpload() {
+interface FileUploadProps {
+  onFileListChange?: () => void;
+}
+
+export default function FileUpload({ onFileListChange }: FileUploadProps) {
   const [files, setFiles] = useState<FileInfo[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState('');
@@ -102,6 +106,9 @@ export default function FileUpload() {
       
       // Clear message after 3 seconds
       setTimeout(() => setUploadMessage(''), 3000);
+      
+      // Notify parent component about file list change
+      onFileListChange?.();
     } catch (error) {
       console.error('Failed to delete file:', error);
       setUploadMessage(`Failed to delete file: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -127,6 +134,9 @@ export default function FileUpload() {
       
       // Clear message after 3 seconds
       setTimeout(() => setUploadMessage(''), 3000);
+      
+      // Notify parent component about file list change
+      onFileListChange?.();
     } catch (error) {
       console.error('Failed to delete all files:', error);
       setUploadMessage(`Failed to delete all files: ${error instanceof Error ? error.message : 'Unknown error'}`);

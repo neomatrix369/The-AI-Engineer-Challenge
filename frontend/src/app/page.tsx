@@ -6,6 +6,12 @@ import FileUpload from '@/components/FileUpload';
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState<'upload' | 'chat'>('upload');
+  const [fileListVersion, setFileListVersion] = useState(0);
+
+  const handleFileListChange = () => {
+    // Increment version to trigger Chat component refresh
+    setFileListVersion(prev => prev + 1);
+  };
 
   return (
     <main className="min-h-screen bg-gray-50">
@@ -43,11 +49,11 @@ export default function Home() {
         {/* Content */}
         <div className="max-w-4xl mx-auto">
           {activeTab === 'upload' ? (
-            <FileUpload />
+            <FileUpload onFileListChange={handleFileListChange} />
           ) : (
             <div className="bg-white rounded-lg shadow-md p-6">
               <h2 className="text-2xl font-bold mb-6 text-gray-800">AI Chat</h2>
-              <Chat />
+              <Chat fileListVersion={fileListVersion} />
             </div>
           )}
         </div>

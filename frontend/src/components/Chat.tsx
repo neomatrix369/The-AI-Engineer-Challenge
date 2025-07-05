@@ -10,7 +10,11 @@ interface Message {
   timestamp: string;
 }
 
-export default function Chat() {
+interface ChatProps {
+  fileListVersion?: number;
+}
+
+export default function Chat({ fileListVersion = 0 }: ChatProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -36,6 +40,13 @@ export default function Chat() {
     loadFiles();
     loadChatHistory();
   }, []);
+
+  // Reload files when fileListVersion changes (files deleted in Upload tab)
+  useEffect(() => {
+    if (fileListVersion > 0) {
+      loadFiles();
+    }
+  }, [fileListVersion]);
 
   const loadFiles = async () => {
     try {
