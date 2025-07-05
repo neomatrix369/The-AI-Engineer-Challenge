@@ -257,7 +257,7 @@ A modern RAG (Retrieval-Augmented Generation) chat application that supports mul
 ✅ Business Intelligence: PDF support for reports and documentation
 ✅ Data Analysis: CSV processing with structured data handling
 ✅ Documentation: Markdown support for technical docs
-✅ Research: Multi-format support for various research data types
+✅ Research: Multi-format support for various research data types (including the .txt file-format for text files)
 
 ## Tech Stack
 

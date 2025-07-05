@@ -17,6 +17,8 @@ This document provides instructions for merging the `feature/improved-rag-step4`
 - ✅ **Component Synchronization**: Chat component now reflects file deletions from Upload tab
 - ✅ **Memory Management**: Fixed backend to properly remove files from all storage locations
 - ✅ **JSON File Support**: Added comprehensive JSON file processing with hierarchical flattening
+- ✅ **Domain-Specific Guidance**: Added contextual guidance for each file type with helpful tips and examples
+- ✅ **Collapsible Guidance**: Users can hide guidance after reading to focus on chatting
 
 ## 🎨 What This Means for Users
 
@@ -70,6 +72,10 @@ Your app now speaks the language of **all the files**! 📁✨
      - [ ] Verify Chat component reflects file deletions from Upload tab
      - [ ] Test component synchronization between Upload and Chat tabs
      - [ ] Test JSON file processing with hierarchical data flattening
+     - [ ] Test domain-specific guidance for each file type (PDF, CSV, JSON, Text)
+     - [ ] Test collapsible guidance functionality (show/hide toggle)
+     - [ ] Verify guidance appears when files are selected in Chat with File mode
+     - [ ] Test guidance content for different file type combinations
      ```
 
 3. **Review and Merge:**
@@ -114,7 +120,11 @@ Your app now speaks the language of **all the files**! 📁✨
      - [ ] Verify deleted files don't reappear after page refresh
      - [ ] Verify Chat component reflects file deletions from Upload tab
      - [ ] Test component synchronization between Upload and Chat tabs
-     - [ ] Test JSON file processing with hierarchical data flattening" \
+     - [ ] Test JSON file processing with hierarchical data flattening
+     - [ ] Test domain-specific guidance for each file type (PDF, CSV, JSON, Text)
+     - [ ] Test collapsible guidance functionality (show/hide toggle)
+     - [ ] Verify guidance appears when files are selected in Chat with File mode
+     - [ ] Test guidance content for different file type combinations" \
      --base main \
      --head feature/improved-rag-step4
    ```
@@ -175,6 +185,10 @@ To test your newly merged multi-file support:
    - Verify deleted files don't reappear after page refresh
    - Verify Chat component reflects file deletions from Upload tab
    - Test JSON file processing with complex hierarchical data
+   - Test domain-specific guidance for each file type (PDF, CSV, JSON, Text)
+   - Test collapsible guidance functionality (show/hide toggle)
+   - Verify guidance appears when files are selected in Chat with File mode
+   - Test guidance content for different file type combinations
 
 ## 🎯 Key Benefits of This Refactor
 
@@ -188,6 +202,8 @@ To test your newly merged multi-file support:
 - **Component Synchronization**: Chat component reflects file changes from Upload tab
 - **Proper Memory Management**: Files are completely removed from all storage locations
 - **Comprehensive Format Support**: Now supports PDF, MD, TXT, CSV, and JSON files
+- **Domain-Specific Guidance**: Contextual help for each file type with tips and examples
+- **Collapsible UI**: Users can hide guidance to focus on chatting
 
 ---
 
