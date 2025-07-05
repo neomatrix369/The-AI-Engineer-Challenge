@@ -20,6 +20,13 @@ interface FileTypeGuidance {
   description: string;
   tips: string[];
   examples: string[];
+  personas: {
+    [persona: string]: {
+      description: string;
+      tips: string[];
+      examples: string[];
+    };
+  };
 }
 
 const FILE_TYPE_GUIDANCE: Record<string, FileTypeGuidance> = {
@@ -38,7 +45,51 @@ const FILE_TYPE_GUIDANCE: Record<string, FileTypeGuidance> = {
       "Summarize the methodology section",
       "What data is presented in the tables?",
       "What are the key recommendations?"
-    ]
+    ],
+    personas: {
+      researcher: {
+        description: "Research-focused analysis and academic insights",
+        tips: [
+          "Ask for methodology validation and research gaps",
+          "Request literature review connections",
+          "Inquire about statistical significance and sample sizes",
+          "Ask for comparative analysis with other studies"
+        ],
+        examples: [
+          "What are the limitations of this study?",
+          "How does this compare to similar research?",
+          "What are the implications for future research?"
+        ]
+      },
+      business: {
+        description: "Business insights and actionable recommendations",
+        tips: [
+          "Ask for executive summaries and key takeaways",
+          "Request ROI analysis and business impact",
+          "Inquire about market implications and trends",
+          "Ask for strategic recommendations and next steps"
+        ],
+        examples: [
+          "What are the key business insights?",
+          "What are the strategic implications?",
+          "What actions should we take based on this?"
+        ]
+      },
+      student: {
+        description: "Educational content and learning objectives",
+        tips: [
+          "Ask for concept explanations and definitions",
+          "Request study guides and key points",
+          "Inquire about practical applications and examples",
+          "Ask for quiz questions and self-assessment"
+        ],
+        examples: [
+          "Can you explain the main concepts?",
+          "What are the key points to remember?",
+          "How can I apply this in practice?"
+        ]
+      }
+    }
   },
   csv: {
     title: "CSV Data Files",
@@ -55,7 +106,51 @@ const FILE_TYPE_GUIDANCE: Record<string, FileTypeGuidance> = {
       "Show me statistics for the sales column",
       "What patterns do you see in the data?",
       "Are there any outliers or anomalies?"
-    ]
+    ],
+    personas: {
+      analyst: {
+        description: "Data analysis and business intelligence",
+        tips: [
+          "Ask for statistical analysis and correlations",
+          "Request data visualization suggestions",
+          "Inquire about data quality and cleaning needs",
+          "Ask for predictive insights and trends"
+        ],
+        examples: [
+          "What correlations exist between variables?",
+          "What insights can we extract from this data?",
+          "How should we visualize these findings?"
+        ]
+      },
+      manager: {
+        description: "High-level insights and decision support",
+        tips: [
+          "Ask for executive summaries and KPIs",
+          "Request performance metrics and benchmarks",
+          "Inquire about actionable insights and recommendations",
+          "Ask for risk assessment and opportunities"
+        ],
+        examples: [
+          "What are the key performance indicators?",
+          "What decisions should we make based on this?",
+          "What are the main opportunities and risks?"
+        ]
+      },
+      developer: {
+        description: "Technical data processing and integration",
+        tips: [
+          "Ask for data structure and schema analysis",
+          "Request data transformation suggestions",
+          "Inquire about API integration possibilities",
+          "Ask for data validation and error handling"
+        ],
+        examples: [
+          "What's the optimal data structure for this?",
+          "How should we process this data programmatically?",
+          "What validation rules should we implement?"
+        ]
+      }
+    }
   },
   json: {
     title: "JSON Data Files",
@@ -72,7 +167,51 @@ const FILE_TYPE_GUIDANCE: Record<string, FileTypeGuidance> = {
       "Show me all user IDs in the data",
       "What configuration options are available?",
       "Are there any missing required fields?"
-    ]
+    ],
+    personas: {
+      developer: {
+        description: "Technical implementation and API integration",
+        tips: [
+          "Ask for API endpoint documentation",
+          "Request data model and schema analysis",
+          "Inquire about error handling and validation",
+          "Ask for integration patterns and best practices"
+        ],
+        examples: [
+          "How should I structure the API calls?",
+          "What's the data model for this JSON?",
+          "How should I handle errors and edge cases?"
+        ]
+      },
+      architect: {
+        description: "System design and architecture decisions",
+        tips: [
+          "Ask for scalability and performance considerations",
+          "Request data flow and integration patterns",
+          "Inquire about security and compliance requirements",
+          "Ask for system design recommendations"
+        ],
+        examples: [
+          "How should we architect this data flow?",
+          "What are the performance implications?",
+          "How should we secure this data?"
+        ]
+      },
+      analyst: {
+        description: "Data analysis and business insights",
+        tips: [
+          "Ask for data extraction and transformation",
+          "Request business logic and rules analysis",
+          "Inquire about data relationships and dependencies",
+          "Ask for reporting and visualization suggestions"
+        ],
+        examples: [
+          "What business rules are encoded here?",
+          "How can we extract insights from this data?",
+          "What reports can we generate from this?"
+        ]
+      }
+    }
   },
   text: {
     title: "Text & Markdown Files",
@@ -89,7 +228,51 @@ const FILE_TYPE_GUIDANCE: Record<string, FileTypeGuidance> = {
       "Explain the code examples in this file",
       "What are the key topics covered?",
       "How is this content organized?"
-    ]
+    ],
+    personas: {
+      writer: {
+        description: "Content creation and documentation",
+        tips: [
+          "Ask for content structure and organization",
+          "Request writing style and tone analysis",
+          "Inquire about audience engagement and clarity",
+          "Ask for content improvement suggestions"
+        ],
+        examples: [
+          "How can I improve the structure of this?",
+          "What's the writing style and tone?",
+          "How can I make this more engaging?"
+        ]
+      },
+      developer: {
+        description: "Technical documentation and code analysis",
+        tips: [
+          "Ask for code documentation and explanations",
+          "Request technical specification analysis",
+          "Inquire about implementation details and patterns",
+          "Ask for code review and improvement suggestions"
+        ],
+        examples: [
+          "Can you explain this code section?",
+          "What are the technical requirements?",
+          "How can I improve this implementation?"
+        ]
+      },
+      student: {
+        description: "Learning and educational content",
+        tips: [
+          "Ask for concept explanations and definitions",
+          "Request study guides and learning objectives",
+          "Inquire about practical applications and examples",
+          "Ask for knowledge assessment and quizzes"
+        ],
+        examples: [
+          "Can you explain the main concepts?",
+          "What should I focus on learning?",
+          "How can I apply this knowledge?"
+        ]
+      }
+    }
   }
 };
 
@@ -107,6 +290,7 @@ export default function Chat({ fileListVersion = 0 }: ChatProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [showPromptHint, setShowPromptHint] = useState(false);
   const [showFileGuidance, setShowFileGuidance] = useState(true);
+  const [selectedPersona, setSelectedPersona] = useState<string>('general');
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -493,7 +677,7 @@ export default function Chat({ fileListVersion = 0 }: ChatProps) {
         <div className="mb-4">
           {/* Guidance Toggle Button */}
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-medium text-gray-700">File Type Guidance</h3>
+            <h3 className="text-sm font-medium text-gray-700">File Type Guidance (for different personas i.e. General User, Business, Developer, Write, etc...)</h3>
             <button
               onClick={() => setShowFileGuidance(!showFileGuidance)}
               className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 transition-colors"
@@ -519,44 +703,75 @@ export default function Chat({ fileListVersion = 0 }: ChatProps) {
           {/* Collapsible Guidance Content */}
           {showFileGuidance && (
             <div className="space-y-3">
-              {getFileTypeGuidance().map((guidance, index) => (
-                <div key={index} className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-blue-600">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
-                    </svg>
-                    <h3 className="text-sm font-semibold text-blue-800">{guidance.title}</h3>
-                  </div>
-                  
-                  <p className="text-sm text-blue-700 mb-3">{guidance.description}</p>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <h4 className="text-xs font-medium text-blue-800 mb-2">💡 Helpful Tips:</h4>
-                      <ul className="text-xs text-blue-700 space-y-1">
-                        {guidance.tips.map((tip, tipIndex) => (
-                          <li key={tipIndex} className="flex items-start gap-1">
-                            <span className="text-blue-500 mt-1">•</span>
-                            <span>{tip}</span>
-                          </li>
-                        ))}
-                      </ul>
+              {/* Persona Selector */}
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-xs font-medium text-gray-600">View as:</span>
+                <select
+                  value={selectedPersona}
+                  onChange={(e) => setSelectedPersona(e.target.value)}
+                  className="text-xs border border-gray-300 rounded px-2 py-1 bg-white"
+                >
+                  <option value="general">General User</option>
+                  {getFileTypeGuidance().map((guidance) => 
+                    Object.keys(guidance.personas).map((persona) => (
+                      <option key={persona} value={persona}>
+                        {persona.charAt(0).toUpperCase() + persona.slice(1)}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+
+              {getFileTypeGuidance().map((guidance, index) => {
+                const personaData = guidance.personas[selectedPersona];
+                const isGeneral = selectedPersona === 'general';
+                
+                return (
+                  <div key={index} className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-blue-600">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
+                      </svg>
+                      <h3 className="text-sm font-semibold text-blue-800">{guidance.title}</h3>
+                      {!isGeneral && personaData && (
+                        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
+                          {selectedPersona.charAt(0).toUpperCase() + selectedPersona.slice(1)}
+                        </span>
+                      )}
                     </div>
                     
-                    <div>
-                      <h4 className="text-xs font-medium text-blue-800 mb-2">💬 Example Questions:</h4>
-                      <ul className="text-xs text-blue-700 space-y-1">
-                        {guidance.examples.map((example, exampleIndex) => (
-                          <li key={exampleIndex} className="flex items-start gap-1">
-                            <span className="text-blue-500 mt-1">•</span>
-                            <span className="italic">"{example}"</span>
-                          </li>
-                        ))}
-                      </ul>
+                    <p className="text-sm text-blue-700 mb-3">
+                      {isGeneral ? guidance.description : personaData?.description || guidance.description}
+                    </p>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <h4 className="text-xs font-medium text-blue-800 mb-2">💡 Helpful Tips:</h4>
+                        <ul className="text-xs text-blue-700 space-y-1">
+                          {(isGeneral ? guidance.tips : personaData?.tips || guidance.tips).map((tip, tipIndex) => (
+                            <li key={tipIndex} className="flex items-start gap-1">
+                              <span className="text-blue-500 mt-1">•</span>
+                              <span>{tip}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                      
+                      <div>
+                        <h4 className="text-xs font-medium text-blue-800 mb-2">💬 Example Questions:</h4>
+                        <ul className="text-xs text-blue-700 space-y-1">
+                          {(isGeneral ? guidance.examples : personaData?.examples || guidance.examples).map((example, exampleIndex) => (
+                            <li key={exampleIndex} className="flex items-start gap-1">
+                              <span className="text-blue-500 mt-1">•</span>
+                              <span className="italic">"{example}"</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
