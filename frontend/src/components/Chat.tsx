@@ -26,6 +26,7 @@ export default function Chat({ fileListVersion = 0 }: ChatProps) {
   const [showHistory, setShowHistory] = useState(false);
   const [error, setError] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [showPromptHint, setShowPromptHint] = useState(false);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -91,6 +92,9 @@ export default function Chat({ fileListVersion = 0 }: ChatProps) {
 
     Finally always produce a citation and/or references for the source of the information wherever possible, when not possible do mention it and why not possible.
   `
+
+  // Template for file chat system prompt
+  const fileChatPromptTemplate = `You are a helpful AI assistant that answers questions based on the provided file content.\n\nFile Sources: [selected files]\n\nFile Context: [relevant chunks]\n\nInstructions:\n- Answer questions based ONLY on the information provided in the file context above\n- If the question cannot be answered from the file content, say \"I cannot answer this question based on the provided file content\"\n- Be accurate and helpful\n- Cite specific parts of the files when possible\n- If multiple files are referenced, specify which file contains the information`;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -231,9 +235,9 @@ export default function Chat({ fileListVersion = 0 }: ChatProps) {
 
   return (
     <div className="flex flex-col h-[80vh] max-w-4xl mx-auto p-4">
-      {/* Header with Chat Mode Selection and History */}
+      {/* Header with Chat Mode Selection, History, and Prompt Hint */}
       <div className="mb-4 flex flex-wrap gap-2 items-center justify-between">
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
           <button
             onClick={handleGeneralChat}
             className={`px-4 py-2 rounded-lg font-medium transition-colors ${
@@ -254,8 +258,19 @@ export default function Chat({ fileListVersion = 0 }: ChatProps) {
           >
             Chat with File
           </button>
+          {/* Prompt Hint Icon */}
+          <button
+            type="button"
+            aria-label="Show system/developer prompt"
+            className="ml-2 p-2 rounded-full hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-400"
+            onClick={() => setShowPromptHint(true)}
+          >
+            {/* Info icon SVG */}
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6 text-blue-600">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 9.75h.008v.008H11.25V9.75zm0 3.75h.008v3.75H11.25V13.5zm.75-9a9 9 0 110 18 9 9 0 010-18z" />
+            </svg>
+          </button>
         </div>
-        
         <div className="flex gap-2">
           <button
             onClick={() => setShowHistory(!showHistory)}
@@ -271,6 +286,39 @@ export default function Chat({ fileListVersion = 0 }: ChatProps) {
           </button>
         </div>
       </div>
+
+      {/* Prompt Hint Modal */}
+      {showPromptHint && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-30">
+          <div className="bg-white rounded-lg shadow-lg max-w-lg w-full p-6 relative">
+            <button
+              className="absolute top-2 right-2 text-gray-400 hover:text-gray-700"
+              aria-label="Close prompt hint"
+              onClick={() => setShowPromptHint(false)}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            <h2 className="text-lg font-semibold mb-2 text-blue-700 flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-blue-600">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 9.75h.008v.008H11.25V9.75zm0 3.75h.008v3.75H11.25V13.5zm.75-9a9 9 0 110 18 9 9 0 010-18z" />
+              </svg>
+              System/Developer Prompt
+            </h2>
+            <div className="max-h-80 overflow-y-auto text-sm whitespace-pre-wrap text-gray-800 bg-gray-50 rounded p-3 border">
+              {chatMode === 'general' ? (
+                <>{developerMessage}</>
+              ) : (
+                <>{fileChatPromptTemplate}</>
+              )}
+            </div>
+            <div className="mt-4 text-xs text-gray-500">
+              This is the system/developer prompt sent to the LLM for this chat mode.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Chat History Panel */}
       {showHistory && (
