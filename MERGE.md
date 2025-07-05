@@ -12,6 +12,7 @@ This document provides instructions for merging the `feature/improved-rag-step4`
 - ✅ **Browser Storage**: Updated storage keys (`pdf_chat_files` → `file_chat_files`)
 - ✅ **Documentation**: Updated all README files to reflect multi-format support
 - ✅ **Interface Exports**: Properly exported shared interfaces from API service
+- ✅ **File Deletion**: Added complete file deletion functionality with UI controls
 
 ## 🎨 What This Means for Users
 
@@ -54,6 +55,9 @@ Your app now speaks the language of **all the files**! 📁✨
      - [ ] Test browser storage functionality
      - [ ] Verify all UI text is updated correctly
      - [ ] Check that old PDF functionality still works
+     - [ ] Test individual file deletion with delete buttons
+     - [ ] Test "Delete All" functionality with confirmation
+     - [ ] Test deletion of both server-stored and browser-stored files
      ```
 
 3. **Review and Merge:**
@@ -88,7 +92,10 @@ Your app now speaks the language of **all the files**! 📁✨
      - [ ] Test chat history with file context
      - [ ] Test browser storage functionality
      - [ ] Verify all UI text is updated correctly
-     - [ ] Check that old PDF functionality still works" \
+     - [ ] Check that old PDF functionality still works
+     - [ ] Test individual file deletion with delete buttons
+     - [ ] Test "Delete All" functionality with confirmation
+     - [ ] Test deletion of both server-stored and browser-stored files" \
      --base main \
      --head feature/improved-rag-step4
    ```
@@ -144,6 +151,8 @@ To test your newly merged multi-file support:
    - Verify the UI text is all updated
    - Test chat history with file context
    - Check that browser storage still works
+   - Test file deletion with individual delete buttons
+   - Test "Delete All" functionality with confirmation dialog
 
 ## 🎯 Key Benefits of This Refactor
 
@@ -152,6 +161,8 @@ To test your newly merged multi-file support:
 - **Better UX**: Clear multi-file support messaging
 - **Maintainable Code**: Shared interfaces and proper exports
 - **Documentation**: Updated READMEs reflect current capabilities
+- **File Management**: Complete file deletion functionality with UI controls
+- **Flexible Storage**: Works with both server and browser storage
 
 ---
 
