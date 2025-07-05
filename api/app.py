@@ -59,7 +59,7 @@ app.add_middleware(
 )
 
 # File type detection and validation
-SUPPORTED_EXTENSIONS = {'.pdf', '.md', '.txt'}
+SUPPORTED_EXTENSIONS = {'.pdf', '.md', '.txt', '.csv'}
 
 def get_file_type(filename: str) -> str:
     """Detect file type based on extension"""
@@ -68,6 +68,8 @@ def get_file_type(filename: str) -> str:
         return 'pdf'
     elif ext in ['md', 'txt']:
         return 'text'
+    elif ext == 'csv':
+        return 'csv'
     return 'unknown'
 
 def is_supported_file(filename: str) -> bool:
@@ -88,6 +90,58 @@ def extract_text_content(file_content: bytes) -> List[str]:
             return [text]
         except:
             raise ValueError("Could not decode file content")
+
+def extract_csv_content(file_content: bytes) -> List[str]:
+    """Extract text content from CSV files"""
+    try:
+        import csv
+        from io import StringIO
+        
+        # Decode the content
+        text = file_content.decode('utf-8')
+        csv_file = StringIO(text)
+        
+        # Parse CSV and convert to text chunks
+        reader = csv.reader(csv_file)
+        rows = list(reader)
+        
+        if not rows:
+            raise ValueError("CSV file is empty")
+        
+        # Convert CSV to structured text
+        text_chunks = []
+        for i, row in enumerate(rows):
+            if i == 0:  # Header row
+                header = " | ".join(row)
+                text_chunks.append(f"Headers: {header}")
+            else:  # Data row
+                row_text = " | ".join(str(cell) for cell in row)
+                text_chunks.append(f"Row {i}: {row_text}")
+        
+        return text_chunks
+    except UnicodeDecodeError:
+        # Try with different encoding if UTF-8 fails
+        try:
+            text = file_content.decode('latin-1')
+            csv_file = StringIO(text)
+            reader = csv.reader(csv_file)
+            rows = list(reader)
+            
+            if not rows:
+                raise ValueError("CSV file is empty")
+            
+            text_chunks = []
+            for i, row in enumerate(rows):
+                if i == 0:
+                    header = " | ".join(row)
+                    text_chunks.append(f"Headers: {header}")
+                else:
+                    row_text = " | ".join(str(cell) for cell in row)
+                    text_chunks.append(f"Row {i}: {row_text}")
+            
+            return text_chunks
+        except:
+            raise ValueError("Could not decode CSV file content")
 
 # Define the data model for chat requests using Pydantic
 # This ensures incoming request data is properly validated
@@ -263,6 +317,17 @@ async def index_file(file_content: bytes, file_id: str, filename: str):
         elif file_type == 'text':
             # Handle markdown and text files
             documents = extract_text_content(file_content)
+            
+            if not documents:
+                raise ValueError("No text could be extracted from the file")
+            
+            # Split text into chunks
+            splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+            chunks = splitter.split_texts(documents)
+            
+        elif file_type == 'csv':
+            # Handle CSV files
+            documents = extract_csv_content(file_content)
             
             if not documents:
                 raise ValueError("No text could be extracted from the file")

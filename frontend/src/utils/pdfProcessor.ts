@@ -129,7 +129,7 @@ export class PDFProcessor {
   }
 
   /**
-   * Process any supported file type: PDF, Markdown, or Text
+   * Process any supported file type: PDF, Markdown, Text, or CSV
    */
   static async processFile(file: File): Promise<{
     chunks: string[];
@@ -144,6 +144,9 @@ export class PDFProcessor {
       textChunks = await this.extractTextFromPDF(file);
     } else if (fileType === 'md' || fileType === 'txt') {
       // Extract text from markdown or text files
+      textChunks = await this.extractTextFromFile(file);
+    } else if (fileType === 'csv') {
+      // Extract text from CSV files
       textChunks = await this.extractTextFromFile(file);
     } else {
       throw new Error(`Unsupported file type: ${fileType}`);

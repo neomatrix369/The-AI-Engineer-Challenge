@@ -69,10 +69,10 @@ export default function FileUpload() {
     if (!file) return;
 
     // Validate file type
-    const supportedExtensions = ['.pdf', '.md', '.txt'];
+    const supportedExtensions = ['.pdf', '.md', '.txt', '.csv'];
     const fileExtension = '.' + file.name.toLowerCase().split('.').pop();
     if (!supportedExtensions.includes(fileExtension)) {
-      setUploadMessage('Please select a PDF, Markdown, or Text file');
+      setUploadMessage('Please select a PDF, Markdown, Text, or CSV file');
       return;
     }
 
@@ -148,7 +148,7 @@ export default function FileUpload() {
         <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
           <input
             type="file"
-            accept=".pdf,.md,.txt"
+            accept=".pdf,.md,.txt,.csv"
             onChange={handleFileUpload}
             disabled={isUploading}
             className="hidden"
@@ -165,7 +165,7 @@ export default function FileUpload() {
             {isUploading ? 'Uploading...' : 'Choose File'}
           </label>
           <p className="mt-2 text-sm text-gray-500">
-            Click to select a PDF, Markdown, or Text file to upload
+            Click to select a PDF, Markdown, Text, or CSV file to upload
           </p>
         </div>
         
