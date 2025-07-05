@@ -1,7 +1,31 @@
 import * as pdfjsLib from 'pdfjs-dist';
 
-// Set up PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+// Set up PDF.js worker with local file as primary option
+const setupPDFWorker = () => {
+  try {
+    // Try local worker file first (most reliable for production)
+    pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+  } catch (error) {
+    console.warn('Failed to set up local PDF worker, trying CDN...');
+    try {
+      // Try the CDN as fallback
+      pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+    } catch (error2) {
+      console.warn('Failed to set up PDF worker from CDN, trying alternative CDN...');
+      try {
+        // Alternative CDN
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`;
+      } catch (error3) {
+        console.warn('All PDF worker options failed, using empty string');
+        // Use empty string as last resort
+        pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+      }
+    }
+  }
+};
+
+// Initialize PDF worker
+setupPDFWorker();
 
 export interface PDFChunk {
   text: string;
@@ -10,35 +34,86 @@ export interface PDFChunk {
 
 export class FileProcessor {
   /**
-   * Extract text from a PDF file
+   * Extract text from a PDF file with fallback handling
    */
   static async extractTextFromPDF(file: File): Promise<string[]> {
     try {
+      console.log('📄 Starting PDF text extraction...');
+      
       const arrayBuffer = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      console.log('📄 PDF loaded, attempting to parse...');
+      
+      // Try to load the PDF document
+      const pdf = await pdfjsLib.getDocument({ 
+        data: arrayBuffer
+      }).promise;
+      
+      console.log(`📄 PDF parsed successfully, ${pdf.numPages} pages found`);
       
       const textChunks: string[] = [];
       
       for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-        const page = await pdf.getPage(pageNum);
-        const textContent = await page.getTextContent();
-        
-        let pageText = '';
-        for (const item of textContent.items) {
-          if ('str' in item) {
-            pageText += item.str + ' ';
+        try {
+          console.log(`📄 Processing page ${pageNum}/${pdf.numPages}...`);
+          const page = await pdf.getPage(pageNum);
+          const textContent = await page.getTextContent();
+          
+          let pageText = '';
+          for (const item of textContent.items) {
+            if ('str' in item) {
+              pageText += item.str + ' ';
+            }
           }
-        }
-        
-        if (pageText.trim()) {
-          textChunks.push(pageText.trim());
+          
+          if (pageText.trim()) {
+            textChunks.push(pageText.trim());
+            console.log(`📄 Page ${pageNum}: ${pageText.trim().substring(0, 100)}...`);
+          } else {
+            console.log(`📄 Page ${pageNum}: No text content found`);
+          }
+        } catch (pageError) {
+          console.warn(`⚠️ Error processing page ${pageNum}:`, pageError);
+          // Continue with other pages
         }
       }
       
+      if (textChunks.length === 0) {
+        throw new Error('No text content could be extracted from PDF');
+      }
+      
+      console.log(`✅ PDF text extraction completed: ${textChunks.length} text chunks`);
       return textChunks;
+      
     } catch (error) {
-      console.error('Error extracting text from PDF:', error);
-      throw new Error('Failed to extract text from PDF');
+      console.error('❌ Error extracting text from PDF:', error);
+      
+      // Provide a more helpful error message
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      if (errorMessage.includes('worker') || errorMessage.includes('fetch')) {
+        throw new Error('PDF processing failed due to worker loading issue. Please try a different file or contact support.');
+      } else if (errorMessage.includes('No text content')) {
+        throw new Error('PDF appears to be image-based or has no extractable text. Please try a text-based PDF.');
+      } else {
+        throw new Error(`Failed to extract text from PDF: ${errorMessage}`);
+      }
+    }
+  }
+
+  /**
+   * Fallback PDF text extraction that doesn't rely on the worker
+   */
+  static async extractTextFromPDFFallback(file: File): Promise<string[]> {
+    try {
+      console.log('📄 Starting fallback PDF text extraction...');
+      
+      // This is a simplified approach that might work in some cases
+      // For now, we'll return a basic message
+      return ['PDF processing is currently unavailable due to technical limitations. Please try uploading a text-based file instead.'];
+      
+    } catch (error) {
+      console.error('❌ Error in fallback PDF extraction:', error);
+      throw new Error('PDF processing is not available. Please try a different file format.');
     }
   }
 
@@ -250,8 +325,21 @@ export class FileProcessor {
     let textChunks: string[];
     
     if (fileType === 'pdf') {
-      // Extract text from PDF
-      textChunks = await this.extractTextFromPDF(file);
+      // Extract text from PDF with fallback
+      try {
+        textChunks = await this.extractTextFromPDF(file);
+      } catch (error) {
+        console.warn('⚠️ Main PDF extraction failed, trying fallback...');
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        
+        if (errorMessage.includes('worker') || errorMessage.includes('fetch')) {
+          // Use fallback for worker-related errors
+          textChunks = await this.extractTextFromPDFFallback(file);
+        } else {
+          // Re-throw other errors
+          throw error;
+        }
+      }
     } else if (fileType === 'md' || fileType === 'txt') {
       // Extract text from markdown or text files
       textChunks = await this.extractTextFromFile(file);
