@@ -14,6 +14,8 @@ This document provides instructions for merging the `feature/improved-rag-step4`
 - ✅ **Interface Exports**: Properly exported shared interfaces from API service
 - ✅ **File Deletion**: Added complete file deletion functionality with UI controls
 - ✅ **File Deletion**: Added complete file deletion functionality with UI controls in Upload Files tab
+- ✅ **Component Synchronization**: Chat component now reflects file deletions from Upload tab
+- ✅ **Memory Management**: Fixed backend to properly remove files from all storage locations
 
 ## 🎨 What This Means for Users
 
@@ -62,6 +64,9 @@ Your app now speaks the language of **all the files**! 📁✨
      - [ ] Test individual file deletion with delete buttons in Upload Files tab
      - [ ] Test "Delete All" functionality with confirmation in Upload Files tab
      - [ ] Test deletion of both server-stored and browser-stored files
+     - [ ] Verify deleted files don't reappear after page refresh
+     - [ ] Verify Chat component reflects file deletions from Upload tab
+     - [ ] Test component synchronization between Upload and Chat tabs
      ```
 
 3. **Review and Merge:**
@@ -102,7 +107,10 @@ Your app now speaks the language of **all the files**! 📁✨
      - [ ] Test deletion of both server-stored and browser-stored files
      - [ ] Test individual file deletion with delete buttons in Upload Files tab
      - [ ] Test "Delete All" functionality with confirmation in Upload Files tab
-     - [ ] Test deletion of both server-stored and browser-stored files" \
+     - [ ] Test deletion of both server-stored and browser-stored files
+     - [ ] Verify deleted files don't reappear after page refresh
+     - [ ] Verify Chat component reflects file deletions from Upload tab
+     - [ ] Test component synchronization between Upload and Chat tabs" \
      --base main \
      --head feature/improved-rag-step4
    ```
@@ -160,6 +168,8 @@ To test your newly merged multi-file support:
    - Check that browser storage still works
    - Test file deletion with individual delete buttons in Upload Files tab
    - Test "Delete All" functionality with confirmation dialog in Upload Files tab
+   - Verify deleted files don't reappear after page refresh
+   - Verify Chat component reflects file deletions from Upload tab
 
 ## 🎯 Key Benefits of This Refactor
 
@@ -168,8 +178,10 @@ To test your newly merged multi-file support:
 - **Better UX**: Clear multi-file support messaging
 - **Maintainable Code**: Shared interfaces and proper exports
 - **Documentation**: Updated READMEs reflect current capabilities
-- **File Management**: Complete file deletion functionality with UI controls
+- **File Management**: Complete file deletion functionality with UI controls in Upload Files tab
 - **Flexible Storage**: Works with both server and browser storage
+- **Component Synchronization**: Chat component reflects file changes from Upload tab
+- **Proper Memory Management**: Files are completely removed from all storage locations
 
 ---
 
