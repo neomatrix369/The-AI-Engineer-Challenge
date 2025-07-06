@@ -1,0 +1,6 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Do not use condo, anaconda or miniconda when working on any project. Try to find local python environments or poetry or pyenv.

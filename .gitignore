@@ -1,6 +1,15 @@
 # Project Specific
 uv.lock
 
+# Uploaded files
+uploads/
+
+# Indexed data
+indexes/
+
+# Chat history
+chat_history/
+
 # Python (Project-wide)
 __pycache__/
 *.py[cod]
