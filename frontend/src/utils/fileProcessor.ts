@@ -1,26 +1,10 @@
 import * as pdfjsLib from 'pdfjs-dist';
 
-// Set up PDF.js worker with local file as primary option
-const setupPDFWorker = () => {
-  try {
-    // Use local worker file as primary option (most reliable for production)
-    pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
-    console.log('📄 PDF worker configured to use local file');
-  } catch (error) {
-    console.warn('⚠️ Failed to set up PDF worker, will use fallback mode');
-    // Disable worker completely as fallback
-    pdfjsLib.GlobalWorkerOptions.workerSrc = '';
-  }
-};
+// Completely disable PDF.js worker to avoid CORS and loading issues
+// This will make PDF processing work without a worker (slower but more reliable)
+pdfjsLib.GlobalWorkerOptions.workerSrc = '';
 
-// Initialize PDF worker immediately
-setupPDFWorker();
-
-// Also set up worker when the module is imported (in case it's imported after PDF.js initialization)
-if (typeof window !== 'undefined') {
-  // Ensure worker is set up in browser environment
-  setupPDFWorker();
-}
+console.log('📄 PDF worker disabled - using main thread processing');
 
 export interface PDFChunk {
   text: string;
@@ -38,14 +22,15 @@ export class FileProcessor {
       const arrayBuffer = await file.arrayBuffer();
       console.log('📄 PDF loaded, attempting to parse...');
       
-      // Completely disable worker to avoid CORS issues
-      pdfjsLib.GlobalWorkerOptions.workerSrc = '';
-      
-      // Load PDF document without worker
-      const pdf = await pdfjsLib.getDocument({ 
+      // Load PDF document without worker (already disabled globally)
+      const loadingTask = pdfjsLib.getDocument({
         data: arrayBuffer,
-        worker: undefined
-      }).promise;
+        worker: undefined,
+        isEvalSupported: false,
+        useSystemFonts: true
+      });
+      
+      const pdf = await loadingTask.promise;
       
       console.log(`📄 PDF parsed successfully, ${pdf.numPages} pages found`);
       
@@ -89,7 +74,7 @@ export class FileProcessor {
       // Provide a more helpful error message
       const errorMessage = error instanceof Error ? error.message : String(error);
       
-      if (errorMessage.includes('worker') || errorMessage.includes('fetch') || errorMessage.includes('CORS')) {
+      if (errorMessage.includes('worker') || errorMessage.includes('fetch') || errorMessage.includes('CORS') || errorMessage.includes('GlobalWorkerOptions')) {
         throw new Error('PDF processing failed due to worker loading issue. Please try a different file or contact support.');
       } else if (errorMessage.includes('No text content')) {
         throw new Error('PDF appears to be image-based or has no extractable text. Please try a text-based PDF.');
@@ -106,9 +91,53 @@ export class FileProcessor {
     try {
       console.log('📄 Starting fallback PDF text extraction...');
       
-      // This is a simplified approach that might work in some cases
-      // For now, we'll return a basic message
-      return ['PDF processing is currently unavailable due to technical limitations. Please try uploading a text-based file instead.'];
+      // Try a different approach without worker
+      const arrayBuffer = await file.arrayBuffer();
+      
+      // Try to load PDF with minimal options (worker already disabled globally)
+      const loadingTask = pdfjsLib.getDocument({
+        data: arrayBuffer,
+        worker: undefined,
+        isEvalSupported: false,
+        useSystemFonts: false,
+        standardFontDataUrl: undefined
+      });
+      
+      const pdf = await loadingTask.promise;
+      console.log(`📄 Fallback PDF parsing successful, ${pdf.numPages} pages found`);
+      
+      const textChunks: string[] = [];
+      
+      // Process each page
+      for (let pageNum = 1; pageNum <= Math.min(pdf.numPages, 10); pageNum++) { // Limit to first 10 pages
+        try {
+          console.log(`📄 Fallback processing page ${pageNum}/${pdf.numPages}...`);
+          const page = await pdf.getPage(pageNum);
+          const textContent = await page.getTextContent();
+          
+          let pageText = '';
+          for (const item of textContent.items) {
+            if ('str' in item && item.str) {
+              pageText += item.str + ' ';
+            }
+          }
+          
+          if (pageText.trim()) {
+            textChunks.push(pageText.trim());
+            console.log(`📄 Fallback page ${pageNum}: ${pageText.trim().substring(0, 100)}...`);
+          }
+        } catch (pageError) {
+          console.warn(`⚠️ Fallback error processing page ${pageNum}:`, pageError);
+          // Continue with other pages
+        }
+      }
+      
+      if (textChunks.length === 0) {
+        throw new Error('No text content could be extracted in fallback mode');
+      }
+      
+      console.log(`✅ Fallback PDF text extraction completed: ${textChunks.length} text chunks`);
+      return textChunks;
       
     } catch (error) {
       console.error('❌ Error in fallback PDF extraction:', error);
