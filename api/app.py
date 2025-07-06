@@ -466,13 +466,20 @@ async def chat_with_file(request: FileChatRequest):
         missing_files = []
         failed_files = []
         for file_id in request.file_ids:
+            print(f"🔍 Checking file {file_id}:")
+            print(f"   - In vector_databases: {file_id in vector_databases}")
+            print(f"   - In indexing_status: {file_id in indexing_status}")
+            
             if file_id not in vector_databases:
                 # Check if file has failed indexing
                 status_info = indexing_status.get(file_id, {"status": "unknown", "message": "File not found"})
+                print(f"   - Status: {status_info}")
                 if status_info["status"] == "failed":
                     failed_files.append(f"{file_id} (failed: {status_info['message']})")
                 else:
                     missing_files.append(f"{file_id} (status: {status_info['status']})")
+            else:
+                print(f"   - ✅ File found in vector_databases")
         
         if missing_files or failed_files:
             error_details = []
@@ -828,11 +835,17 @@ async def accept_pre_indexed_file(request: PreIndexedFileRequest):
             "chunks": request.chunks
         }
         
+        print(f"📊 Stored file {request.file_id} in vector_databases")
+        print(f"📊 Current vector_databases keys: {list(vector_databases.keys())}")
+        
         # Update indexing status
         indexing_status[request.file_id] = {
             "status": "completed",
             "message": f"Successfully indexed {len(request.chunks)} text chunks from browser storage"
         }
+        
+        print(f"📊 Updated indexing status for {request.file_id}")
+        print(f"📊 Current indexing_status keys: {list(indexing_status.keys())}")
         
         print(f"✅ Successfully indexed file {request.file_id} with {len(request.chunks)} chunks")
         return {"message": "File indexed successfully", "chunks_count": len(request.chunks)}
