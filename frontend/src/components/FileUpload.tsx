@@ -191,9 +191,13 @@ export default function FileUpload({ onFileListChange }: FileUploadProps) {
       console.log('📤 File content length:', response.file_content?.length || 0);
       setUploadMessage(`Successfully uploaded: ${response.filename}. Indexing will start shortly...`);
       
-      // Store metadata in browser storage
-      storeFileMetadataInBrowser(response.file_id, response.filename, response.vector_store_type, response.file_content);
-      console.log('💾 Stored in browser:', response.file_id, response.filename, response.vector_store_type, response.file_content ? '(with content)' : '(metadata only)');
+      // Only store in browser storage if use_browser_storage is true
+      if (response.use_browser_storage) {
+        storeFileMetadataInBrowser(response.file_id, response.filename, response.vector_store_type, response.file_content);
+        console.log('💾 Stored in browser:', response.file_id, response.filename, response.vector_store_type, response.file_content ? '(with content)' : '(metadata only)');
+      } else {
+        console.log('💾 Server storage mode - not storing in browser');
+      }
       
       // Add the new file to the local state immediately with the real filename
       const newFile: FileInfo = {

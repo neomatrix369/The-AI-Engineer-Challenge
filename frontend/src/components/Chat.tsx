@@ -447,7 +447,22 @@ export default function Chat({ fileListVersion = 0 }: ChatProps) {
         if (done) break;
 
         const text = new TextDecoder().decode(value);
-        response += text;
+        
+        // Parse the streaming response properly
+        const lines = text.split('\n');
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const jsonData = JSON.parse(line.slice(6)); // Remove 'data: ' prefix
+              if (jsonData.content) {
+                response += jsonData.content;
+              }
+            } catch (e) {
+              // Skip invalid JSON lines
+              console.warn('Invalid JSON in stream:', line);
+            }
+          }
+        }
         
         // Update the last message (AI response) in real-time
         setMessages(prev => {

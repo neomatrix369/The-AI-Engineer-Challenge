@@ -16,6 +16,7 @@ import asyncio
 from datetime import datetime
 import logging
 import sys
+import tempfile
 
 # Import aimakerspace components for PDF processing and indexing
 from aimakerspace.text_utils import PDFLoader, CharacterTextSplitter
@@ -126,7 +127,7 @@ if is_vercel_environment() and os.getenv("USE_QDRANT") is None:
 UPLOADS_DIR = Path("uploads")
 INDEXES_DIR = Path("indexes")
 CHAT_HISTORY_DIR = Path("chat_history")
-FILE_METADATA_PATH = Path("file_metadata.json")
+FILE_METADATA_PATH = Path(tempfile.gettempdir()) / "file_metadata.json"
 
 # Check if we're in a read-only environment (like Vercel)
 def is_readonly_environment():
@@ -231,7 +232,15 @@ def create_vector_database(file_id: str = None):
     logger.info(f"   - QDRANT_API_KEY: {'Set' if os.getenv('QDRANT_API_KEY') else 'Not set'}")
     
     if USE_QDRANT:
-        return QdrantVectorDatabase(collection_name=f"documents_{file_id}")
+        try:
+            logger.info(f"🔗 Attempting to create QdrantVectorDatabase...")
+            vector_db = QdrantVectorDatabase(collection_name=f"documents_{file_id}")
+            logger.info(f"✅ Successfully created QdrantVectorDatabase")
+            return vector_db
+        except Exception as e:
+            logger.error(f"❌ Failed to create QdrantVectorDatabase: {str(e)}")
+            logger.warning(f"⚠️ Falling back to in-memory VectorDatabase")
+            return VectorDatabase()
     else:
         logger.info(f"💾 Creating in-memory vector database")
         return VectorDatabase()
@@ -263,18 +272,15 @@ except Exception as e:
     file_metadata = {}
 
 def save_chat_session(session: ChatSession):
-    """Save chat session to file or memory"""
-    if IS_READONLY:
-        # Store in memory for read-only environments
-        chat_sessions[session.session_id] = session
-        return
-    
+    """Save a chat session to disk"""
     try:
+        CHAT_HISTORY_DIR.mkdir(exist_ok=True)
         session_file = CHAT_HISTORY_DIR / f"{session.session_id}.json"
         with open(session_file, 'w') as f:
-            json.dump(session.dict(), f, indent=2)
+            json.dump(session.model_dump(), f, indent=2)
+        logger.info(f"💾 Saved chat session: {session.session_id}")
     except Exception as e:
-        logger.warning(f"Warning: Failed to save chat session: {e}")
+        logger.error(f"❌ Error saving chat session: {str(e)}")
 
 def load_chat_session(session_id: str) -> Optional[ChatSession]:
     """Load chat session from file or memory"""
@@ -450,7 +456,14 @@ async def get_file_status(file_id: str):
     status_info = indexing_status.get(file_id, {"status": "unknown", "message": "File not found"})
     
     # Determine if file is ready for chat
-    ready_for_chat = bool(status_info["status"] in ["completed", "ready"] or file_id in vector_databases)
+    in_vector_databases = file_id in vector_databases
+    ready_for_chat = bool(status_info["status"] in ["completed", "ready"] or in_vector_databases)
+    
+    logger.info(f"🔍 File status check for {file_id}:")
+    logger.info(f"   - Status info: {status_info}")
+    logger.info(f"   - In vector_databases: {in_vector_databases}")
+    logger.info(f"   - Ready for chat: {ready_for_chat}")
+    logger.info(f"   - Current vector_databases keys: {list(vector_databases.keys())}")
     
     return {
         **status_info,
@@ -478,6 +491,8 @@ async def get_chat_history():
 # File indexing function
 async def index_file(file_content: bytes, file_id: str, filename: str):
     """Index a file using the aimakerspace library"""
+    chunks = []  # Initialize chunks variable
+    
     try:
         # Update status to indexing
         indexing_status[file_id] = {
@@ -486,6 +501,14 @@ async def index_file(file_content: bytes, file_id: str, filename: str):
         }
         
         file_type = get_file_type(filename)
+        
+        # Calculate vector store type
+        vector_store_type = "qdrant" if USE_QDRANT else "memory"
+        
+        logger.info(f"🔍 Starting vector database indexing for {file_id}")
+        logger.info(f"   - Chunks count: {len(chunks)}")
+        logger.info(f"   - File type: {file_type}")
+        logger.info(f"   - Vector store type: {vector_store_type}")
         
         if file_type == 'pdf':
             # Handle PDF files with improved text extraction
@@ -661,7 +684,19 @@ async def index_file(file_content: bytes, file_id: str, filename: str):
         
         # Create vector database based on configuration
         vector_db = create_vector_database(file_id)
-        await vector_db.abuild_from_list(chunks, metadata={"file_id": file_id, "filename": filename})
+        logger.info(f"✅ Created vector database: {type(vector_db).__name__}")
+        
+        try:
+            await vector_db.abuild_from_list(chunks, metadata={"file_id": file_id, "filename": filename})
+            logger.info(f"✅ Successfully indexed {len(chunks)} chunks into vector database")
+        except Exception as e:
+            logger.error(f"❌ Error during vector database indexing: {str(e)}")
+            # Update status to failed
+            indexing_status[file_id] = {
+                "status": "failed",
+                "message": f"Vector database indexing failed: {str(e)}"
+            }
+            raise
         
         # Store the vector database in memory for quick access
         vector_databases[file_id] = {
@@ -669,6 +704,9 @@ async def index_file(file_content: bytes, file_id: str, filename: str):
             "chunks": chunks,
             "filename": filename
         }
+        
+        logger.info(f"📊 Stored file {file_id} in vector_databases")
+        logger.info(f"📊 Current vector_databases keys: {list(vector_databases.keys())}")
         
         # Save the vector database metadata
         index_data = {
@@ -970,8 +1008,9 @@ async def upload_file(file: UploadFile = File(...)):
         }
         logger.info(f"💾 Stored metadata for {file_id}: filename={filename}, vector_store_type={vector_store_type}")
         
-        if (IS_READONLY and USE_BROWSER_STORAGE) or is_vercel_environment():
-            # In read-only mode with browser storage enabled, return the file content for browser storage
+        if (IS_READONLY and USE_BROWSER_STORAGE and not USE_QDRANT) or (is_vercel_environment() and not USE_QDRANT):
+            # Browser storage mode: when read-only + browser storage enabled + no Qdrant, OR Vercel + no Qdrant
+            # If Qdrant is available, use server storage mode even on Vercel
             import base64
             file_content_b64 = base64.b64encode(content).decode('utf-8')
             
@@ -981,6 +1020,7 @@ async def upload_file(file: UploadFile = File(...)):
             logger.info(f"   - Browser storage enabled: {USE_BROWSER_STORAGE}")
             logger.info(f"   - Read-only mode: {IS_READONLY}")
             logger.info(f"   - Vercel environment: {is_vercel_environment()}")
+            logger.info(f"   - Qdrant available: {USE_QDRANT}")
             
             return FileUploadResponse(
                 filename=filename,
@@ -1100,7 +1140,7 @@ async def accept_pre_indexed_file(request: PreIndexedFileRequest):
                     # Check if the vector database supports metadata by checking its type
                     if isinstance(vector_db, QdrantVectorDatabase):
                         # QdrantVectorDatabase supports metadata
-                    vector_db.insert(chunk, np.array(embedding), metadata={"file_id": request.file_id, "filename": request.filename})
+                        vector_db.insert(chunk, np.array(embedding), metadata={"file_id": request.file_id, "filename": request.filename})
                     else:
                         # In-memory VectorDatabase doesn't support metadata
                         vector_db.insert(chunk, np.array(embedding))

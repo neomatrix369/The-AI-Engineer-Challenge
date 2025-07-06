@@ -45,10 +45,14 @@ class VectorDatabase:
         self,
         query_text: str,
         k: int,
-        distance_measure: Callable = cosine_similarity,
+        distance_measure: Callable = None,  # Not used for Qdrant
         return_as_text: bool = False,
     ) -> List[Tuple[str, float]]:
+        """Search by text query"""
         query_vector = self.embedding_model.get_embedding(query_text)
+        # Convert numpy array to list for Qdrant
+        if hasattr(query_vector, 'tolist'):
+            query_vector = query_vector.tolist()
         results = self.search(query_vector, k, distance_measure)
         return [result[0] for result in results] if return_as_text else results
 
@@ -130,9 +134,13 @@ class QdrantVectorDatabase:
     ) -> List[Tuple[str, float]]:
         """Search for similar vectors in Qdrant"""
         try:
+            # Ensure query_vector is a list for Qdrant
+            if hasattr(query_vector, 'tolist'):
+                query_vector = query_vector.tolist()
+            
             results = self.client.search(
                 collection_name=self.collection_name,
-                query_vector=query_vector.tolist(),
+                query_vector=query_vector,
                 limit=k
             )
             
@@ -150,6 +158,9 @@ class QdrantVectorDatabase:
     ) -> List[Tuple[str, float]]:
         """Search by text query"""
         query_vector = self.embedding_model.get_embedding(query_text)
+        # Convert numpy array to list for Qdrant
+        if hasattr(query_vector, 'tolist'):
+            query_vector = query_vector.tolist()
         results = self.search(query_vector, k, distance_measure)
         return [result[0] for result in results] if return_as_text else results
     
@@ -166,6 +177,10 @@ class QdrantVectorDatabase:
             
             points = []
             for text, embedding in zip(list_of_text, embeddings):
+                # Ensure embedding is a list for Qdrant
+                if hasattr(embedding, 'tolist'):
+                    embedding = embedding.tolist()
+                
                 point = PointStruct(
                     id=str(uuid.uuid4()),
                     vector=embedding,

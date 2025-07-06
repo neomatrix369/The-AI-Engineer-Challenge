@@ -444,11 +444,18 @@ export const api = {
     try {
       const healthResponse = await this.healthCheck();
       if (!healthResponse.readonly) {
+        console.log('🔍 Not in read-only mode, skipping browser storage indexing');
         return; // Only index browser-stored files in read-only mode
       }
 
       const browserFiles = getBrowserStoredFiles();
       console.log('🔍 Browser files:', browserFiles);
+      
+      // Only proceed if we have files in browser storage
+      if (Object.keys(browserFiles).length === 0) {
+        console.log('🔍 No files in browser storage, skipping indexing');
+        return;
+      }
       
       for (const [fileId, fileData] of Object.entries(browserFiles)) {
         console.log(`🔍 Processing file ${fileId}:`, {
@@ -459,24 +466,18 @@ export const api = {
           contentPreview: fileData.content?.substring(0, 100) || 'No content'
         });
         
-        // Check if this file is already indexed on the backend
-        try {
-          const statusResponse = await this.getFileIndexingStatus(fileId);
-          if (statusResponse.status === 'completed') {
-            console.log(`✅ File ${fileId} already indexed, skipping`);
-            continue; // Already indexed
-          }
-        } catch (error) {
-          // File not found on backend, needs indexing
-          console.log(`📝 File ${fileId} not found on backend, will index`);
-        }
+        // In browser storage mode, always re-index files since backend memory gets lost on restart
+        // Only skip if we have a local status indicating it was recently completed
+        const localStatus = this.getLocalIndexingStatus(fileId);
+        const needsIndexing = !localStatus || localStatus.status !== 'completed';
         
-        // Index the file
-        if (fileData.content) {
+        if (needsIndexing && fileData.content) {
           console.log(`🚀 Indexing file ${fileId} with ${fileData.content.length} chars of content`);
           await this.indexBrowserStoredFile(fileId, fileData.filename, fileData.content);
-        } else {
+        } else if (!fileData.content) {
           console.warn(`⚠️ No content found for file ${fileId}, skipping indexing`);
+        } else {
+          console.log(`✅ File ${fileId} already indexed locally, skipping`);
         }
       }
     } catch (error) {
