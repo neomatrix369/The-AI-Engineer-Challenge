@@ -245,31 +245,222 @@ def create_vector_database(file_id: str = None):
         logger.info(f"💾 Creating in-memory vector database")
         return VectorDatabase()
 
-# In-memory storage for indexing status (in production, use a proper database)
-indexing_status = {}
-
-# In-memory storage for vector databases (in production, use a proper vector store)
+# Global variables for in-memory storage
 vector_databases = {}
+indexing_status = {}
+chat_sessions = {}
+memory_stored_files = {}
 
-# In-memory storage for chat sessions (in production, use a proper database)
-chat_sessions: Dict[str, ChatSession] = {}
+def load_vector_database_metadata():
+    """Load vector database metadata from persistent storage"""
+    logger.info("🔄 Loading vector database metadata...")
+    logger.info(f"   - IS_READONLY: {IS_READONLY}")
+    logger.info(f"   - INDEXES_DIR: {INDEXES_DIR}")
+    logger.info(f"   - INDEXES_DIR.exists(): {INDEXES_DIR.exists()}")
+    logger.info(f"   - is_vercel_environment(): {is_vercel_environment()}")
+    
+    try:
+        # For Vercel, we can't rely on file system persistence
+        # Instead, we'll rely on the fact that Qdrant stores the data
+        # and we'll check Qdrant directly when needed
+        if is_vercel_environment():
+            logger.info("   - Vercel environment detected, skipping file-based metadata loading")
+            logger.info("   - Will rely on Qdrant for data persistence")
+            return
+        
+        if not IS_READONLY and INDEXES_DIR.exists():
+            index_files = list(INDEXES_DIR.glob("*.json"))
+            logger.info(f"   - Found {len(index_files)} index files")
+            
+            for index_file in index_files:
+                logger.info(f"   - Processing index file: {index_file}")
+                try:
+                    with open(index_file, 'r') as f:
+                        metadata = json.load(f)
+                    
+                    file_id = metadata.get("file_id")
+                    if file_id:
+                        # Create a placeholder entry for the vector database
+                        # The actual vector database will be loaded from Qdrant when needed
+                        vector_databases[file_id] = {
+                            "vector_db": None,  # Will be loaded on demand
+                            "chunks": [],  # Not stored in metadata
+                            "filename": metadata.get("filename", f"File_{file_id[:8]}"),
+                            "metadata": metadata
+                        }
+                        
+                        # Update indexing status
+                        indexing_status[file_id] = {
+                            "status": metadata.get("status", "completed"),
+                            "message": f"Loaded from persistent storage"
+                        }
+                        
+                        logger.info(f"📊 Loaded metadata for file {file_id}")
+                        logger.info(f"   - Filename: {metadata.get('filename', 'Unknown')}")
+                        logger.info(f"   - Status: {metadata.get('status', 'Unknown')}")
+                    else:
+                        logger.warning(f"⚠️ No file_id found in metadata: {metadata}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to load metadata from {index_file}: {str(e)}")
+        else:
+            logger.info(f"   - Skipping metadata load: IS_READONLY={IS_READONLY}, INDEXES_DIR.exists()={INDEXES_DIR.exists()}")
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to load vector database metadata: {str(e)}")
+    
+    logger.info(f"📊 Final vector_databases keys: {list(vector_databases.keys())}")
+    logger.info(f"📊 Final indexing_status keys: {list(indexing_status.keys())}")
 
-# In-memory storage for files when in read-only mode
-memory_stored_files: Dict[str, bytes] = {}
+# Load metadata on startup
+load_vector_database_metadata()
 
 # Store file metadata immediately for list_files endpoint
 file_metadata = {}
 
-# Load file_metadata from disk on startup
-try:
-    if FILE_METADATA_PATH.exists():
-        with open(FILE_METADATA_PATH, 'r') as f:
-            file_metadata = json.load(f)
-    else:
+def save_file_metadata():
+    """Save file_metadata to disk (only for local environments)"""
+    if is_vercel_environment():
+        logger.info("🔄 Vercel environment detected, skipping file metadata persistence to disk")
+        return
+    
+    try:
+        with open(FILE_METADATA_PATH, 'w') as f:
+            json.dump(file_metadata, f)
+        logger.info(f"💾 Saved file_metadata to disk: {len(file_metadata)} files")
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to save file_metadata: {e}")
+
+def load_file_metadata_from_qdrant():
+    """Load file metadata from Qdrant for Vercel environments"""
+    if not is_vercel_environment() or not USE_QDRANT:
+        return
+    
+    logger.info("🔄 Loading file metadata from Qdrant for Vercel...")
+    try:
+        # Get Qdrant client directly
+        import os
+        
+        qdrant_url = os.getenv("QDRANT_URL")
+        qdrant_api_key = os.getenv("QDRANT_API_KEY")
+        
+        if not qdrant_url or not qdrant_api_key:
+            logger.warning("⚠️ Qdrant credentials not found, skipping metadata loading")
+            return
+        
+        logger.info(f"🔗 Connecting to Qdrant at {qdrant_url}")
+        from qdrant_client import QdrantClient
+        client = QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
+        
+        # Test connection
+        try:
+            collections = client.get_collections()
+            logger.info(f"📊 Found {len(collections.collections)} collections in Qdrant")
+        except Exception as e:
+            logger.error(f"❌ Failed to connect to Qdrant: {str(e)}")
+            return
+        
+        for collection in collections.collections:
+            collection_name = collection.name
+            if collection_name.startswith("documents_"):
+                file_id = collection_name.replace("documents_", "")
+                logger.info(f"🔍 Checking collection for file_id: {file_id}")
+                
+                try:
+                    # Get collection info to check if it has data
+                    collection_info = client.get_collection(collection_name=collection_name)
+                    if collection_info.points_count == 0:
+                        logger.warning(f"⚠️ Collection {collection_name} is empty")
+                        continue
+                    
+                    # Try to get metadata from collection info or search
+                    filename = None
+                    
+                    # Method 1: Try to get from collection info
+                    try:
+                        # Get all points from the collection to find metadata
+                        points = client.scroll(
+                            collection_name=collection_name,
+                            limit=1,
+                            with_payload=True
+                        )
+                        
+                        if points[0] and len(points[0]) > 0:
+                            point = points[0][0]
+                            metadata = point.payload
+                            if metadata and "filename" in metadata:
+                                filename = metadata["filename"]
+                                logger.info(f"📊 Found filename in collection scroll: {filename}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ Failed to get metadata from scroll: {str(e)}")
+                    
+                    # Method 2: Try search if scroll failed
+                    if not filename:
+                        try:
+                            # Create a dummy embedding for search
+                            dummy_embedding = [0.0] * 1536  # Default embedding size
+                            
+                            search_results = client.search(
+                                collection_name=collection_name,
+                                query_vector=dummy_embedding,
+                                limit=1,
+                                with_payload=True
+                            )
+                            
+                            if search_results and len(search_results) > 0:
+                                result = search_results[0]
+                                metadata = result.payload
+                                if metadata and "filename" in metadata:
+                                    filename = metadata["filename"]
+                                    logger.info(f"📊 Found filename in search: {filename}")
+                        except Exception as e:
+                            logger.warning(f"⚠️ Failed to get metadata from search: {str(e)}")
+                    
+                    # Use filename if found, otherwise use default
+                    if filename:
+                        file_metadata[file_id] = {
+                            "filename": filename,
+                            "vector_store_type": "qdrant",
+                            "uploaded_at": datetime.now().isoformat()
+                        }
+                        logger.info(f"📊 Loaded metadata for {file_id}: {filename}")
+                    else:
+                        # Use a default filename based on file_id
+                        file_metadata[file_id] = {
+                            "filename": f"File_{file_id[:8]}",
+                            "vector_store_type": "qdrant",
+                            "uploaded_at": datetime.now().isoformat()
+                        }
+                        logger.warning(f"⚠️ No filename found for {file_id}, using default: File_{file_id[:8]}")
+                        
+                except Exception as e:
+                    logger.warning(f"⚠️ Error loading metadata for {file_id}: {str(e)}")
+                    # Still add to file_metadata with default name
+                    file_metadata[file_id] = {
+                        "filename": f"File_{file_id[:8]}",
+                        "vector_store_type": "qdrant",
+                        "uploaded_at": datetime.now().isoformat()
+                    }
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to load file metadata from Qdrant: {str(e)}")
+    
+    logger.info(f"📊 Loaded {len(file_metadata)} files from Qdrant metadata")
+
+# Load file_metadata from disk on startup (for local environments)
+if not is_vercel_environment():
+    try:
+        if FILE_METADATA_PATH.exists():
+            with open(FILE_METADATA_PATH, 'r') as f:
+                file_metadata = json.load(f)
+            logger.info(f"📊 Loaded file_metadata from disk: {len(file_metadata)} files")
+        else:
+            file_metadata = {}
+            logger.info("📊 No existing file_metadata found, starting fresh")
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to load file_metadata: {e}")
         file_metadata = {}
-except Exception as e:
-    logger.warning(f"⚠️ Failed to load file_metadata: {e}")
+else:
+    # For Vercel, load metadata from Qdrant
     file_metadata = {}
+    load_file_metadata_from_qdrant()
 
 def save_chat_session(session: ChatSession):
     """Save a chat session to disk"""
@@ -390,6 +581,11 @@ async def health_check():
 @app.get("/api/files")
 async def list_files():
     """List all uploaded files"""
+    # For Vercel environments, refresh metadata from Qdrant on every request
+    if is_vercel_environment() and USE_QDRANT and not file_metadata:
+        logger.info("🔄 Vercel environment detected, refreshing metadata from Qdrant")
+        load_file_metadata_from_qdrant()
+    
     files = []
     
     if IS_READONLY:
@@ -410,7 +606,17 @@ async def list_files():
                 actual_vector_store_type = "memory" if file_id in vector_databases else "browser"
                 logger.info(f"✅ Found vector database info for {file_id}: {actual_filename}")
             else:
-                logger.warning(f"⚠️ No metadata found for {file_id}, using generic: {actual_filename}")
+                # Try to refresh metadata from Qdrant for Vercel environments
+                if is_vercel_environment() and USE_QDRANT:
+                    refreshed_filename = refresh_file_metadata_from_qdrant(file_id)
+                    if refreshed_filename:
+                        actual_filename = refreshed_filename
+                        actual_vector_store_type = "qdrant"
+                        logger.info(f"🔄 Refreshed metadata for {file_id}: {actual_filename}")
+                    else:
+                        logger.warning(f"⚠️ No metadata found for {file_id}, using generic: {actual_filename}")
+                else:
+                    logger.warning(f"⚠️ No metadata found for {file_id}, using generic: {actual_filename}")
             
             # Determine if file is ready for chat
             ready_for_chat = bool(status_info["status"] in ["completed", "ready"] or file_id in vector_databases)
@@ -487,6 +693,34 @@ async def get_chat_history():
                 logger.warning(f"Warning: Failed to load session {session_file}: {e}")
     
     return {"sessions": [session.dict() for session in sessions]}
+
+# Get specific chat session endpoint
+@app.get("/api/chat-history/{session_id}")
+async def get_chat_session(session_id: str):
+    """Get a specific chat session by session_id"""
+    try:
+        # First check in memory
+        if session_id in chat_sessions:
+            session = chat_sessions[session_id]
+            logger.info(f"📊 Found chat session {session_id} in memory")
+            return session.dict()
+        
+        # If not in memory, try to load from disk (for local environments)
+        if not IS_READONLY:
+            session = load_chat_session(session_id)
+            if session:
+                logger.info(f"📊 Loaded chat session {session_id} from disk")
+                return session.dict()
+        
+        # If not found anywhere, return 404
+        logger.warning(f"⚠️ Chat session {session_id} not found")
+        raise HTTPException(status_code=404, detail="Chat session not found")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error getting chat session {session_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get chat session: {str(e)}")
 
 # File indexing function
 async def index_file(file_content: bytes, file_id: str, filename: str):
@@ -689,6 +923,74 @@ async def index_file(file_content: bytes, file_id: str, filename: str):
         try:
             await vector_db.abuild_from_list(chunks, metadata={"file_id": file_id, "filename": filename})
             logger.info(f"✅ Successfully indexed {len(chunks)} chunks into vector database")
+            
+            # Store the vector database in memory for quick access
+            vector_databases[file_id] = {
+                "vector_db": vector_db,
+                "chunks": chunks,
+                "filename": filename
+            }
+            
+            logger.info(f"📊 Stored file {file_id} in vector_databases")
+            logger.info(f"📊 Current vector_databases keys: {list(vector_databases.keys())}")
+            
+            # Save the vector database metadata
+            index_data = {
+                "file_id": file_id,
+                "chunks_count": len(chunks),
+                "indexed_at": asyncio.get_event_loop().time(),
+                "status": "completed",
+                "vector_store_type": "qdrant" if USE_QDRANT else "memory",
+                "filename": filename  # Add filename to metadata
+            }
+            
+            logger.info(f"💾 Saving index metadata for {file_id}:")
+            logger.info(f"   - Filename: {filename}")
+            logger.info(f"   - Chunks count: {len(chunks)}")
+            logger.info(f"   - Vector store type: {index_data['vector_store_type']}")
+            
+            # Store metadata in memory for Vercel (since file system is not persistent)
+            if is_vercel_environment():
+                logger.info(f"   - Vercel environment: storing metadata in memory")
+                # Store in the global vector_databases dictionary
+                vector_databases[file_id] = {
+                    "vector_db": vector_db,
+                    "chunks": chunks,
+                    "filename": filename,
+                    "metadata": index_data
+                }
+                # Also update file_metadata for consistency
+                file_metadata[file_id] = {
+                    "filename": filename,
+                    "vector_store_type": "qdrant",
+                    "uploaded_at": datetime.now().isoformat()
+                }
+                logger.info(f"   - ✅ Updated file_metadata for {file_id}: {filename}")
+                
+                # Also store metadata in Qdrant for persistent access
+                store_metadata_in_qdrant(file_id, filename)
+            elif not IS_READONLY:
+                index_file_path = INDEXES_DIR / f"{file_id}.json"
+                logger.info(f"   - Saving to: {index_file_path}")
+                with open(index_file_path, 'w') as f:
+                    json.dump(index_data, f)
+                logger.info(f"   - ✅ Metadata saved successfully")
+            else:
+                logger.info(f"   - Skipping metadata save (read-only environment)")
+            
+            # Update status to completed
+            indexing_status[file_id] = {
+                "status": "completed",
+                "message": f"Successfully indexed {len(chunks)} text chunks"
+            }
+            
+            # Clean up temp file if in read-only mode
+            if IS_READONLY and file_type == 'pdf':
+                try:
+                    os.remove(temp_file_path)
+                except:
+                    pass
+            
         except Exception as e:
             logger.error(f"❌ Error during vector database indexing: {str(e)}")
             # Update status to failed
@@ -697,43 +999,6 @@ async def index_file(file_content: bytes, file_id: str, filename: str):
                 "message": f"Vector database indexing failed: {str(e)}"
             }
             raise
-        
-        # Store the vector database in memory for quick access
-        vector_databases[file_id] = {
-            "vector_db": vector_db,
-            "chunks": chunks,
-            "filename": filename
-        }
-        
-        logger.info(f"📊 Stored file {file_id} in vector_databases")
-        logger.info(f"📊 Current vector_databases keys: {list(vector_databases.keys())}")
-        
-        # Save the vector database metadata
-        index_data = {
-            "file_id": file_id,
-            "chunks_count": len(chunks),
-            "indexed_at": asyncio.get_event_loop().time(),
-            "status": "completed",
-            "vector_store_type": "qdrant" if USE_QDRANT else "memory"
-        }
-        
-        if not IS_READONLY:
-            index_file_path = INDEXES_DIR / f"{file_id}.json"
-            with open(index_file_path, 'w') as f:
-                json.dump(index_data, f)
-        
-        # Update status to completed
-        indexing_status[file_id] = {
-            "status": "completed",
-            "message": f"Successfully indexed {len(chunks)} text chunks"
-        }
-        
-        # Clean up temp file if in read-only mode
-        if IS_READONLY and file_type == 'pdf':
-            try:
-                os.remove(temp_file_path)
-            except:
-                pass
         
     except Exception as e:
         # Update status to failed
@@ -764,6 +1029,61 @@ async def chat_with_file(request: FileChatRequest):
             logger.info(f"   - In indexing_status: {file_id in indexing_status}")
             
             if file_id not in vector_databases:
+                # For Vercel environment, try to check if file exists in Qdrant
+                if is_vercel_environment() and USE_QDRANT:
+                    logger.info(f"   - Checking Qdrant for file {file_id}")
+                    try:
+                        # Try to create a vector database and check if it has data
+                        temp_vector_db = create_vector_database(file_id)
+                        
+                        # Try to get the actual filename from Qdrant metadata
+                        actual_filename = f"File_{file_id[:8]}"  # Default fallback
+                        try:
+                            # Search for any document to get metadata
+                            search_results = temp_vector_db.search_by_text("", k=1, return_as_text=False)
+                            if search_results and len(search_results) > 0:
+                                # Get metadata from the first result
+                                metadata = search_results[0][1] if len(search_results[0]) > 1 else {}
+                                if isinstance(metadata, dict) and "filename" in metadata:
+                                    actual_filename = metadata["filename"]
+                                    logger.info(f"   - Found filename in Qdrant metadata: {actual_filename}")
+                                else:
+                                    logger.info(f"   - No filename in Qdrant metadata, using default")
+                            else:
+                                logger.info(f"   - No documents found in Qdrant, using default filename")
+                        except Exception as e:
+                            logger.warning(f"   - Could not retrieve filename from Qdrant: {str(e)}")
+                        
+                        # If no metadata found, try to get from file_metadata
+                        if actual_filename == f"File_{file_id[:8]}" and file_id in file_metadata:
+                            actual_filename = file_metadata[file_id].get("filename", actual_filename)
+                            logger.info(f"   - Found filename in file_metadata: {actual_filename}")
+                        
+                        # Update file_metadata with the found information
+                        file_metadata[file_id] = {
+                            "filename": actual_filename,
+                            "vector_store_type": "qdrant",
+                            "uploaded_at": datetime.now().isoformat()
+                        }
+                        
+                        # Save file_metadata to disk
+                        save_file_metadata()
+                        
+                        vector_databases[file_id] = {
+                            "vector_db": temp_vector_db,
+                            "chunks": [],
+                            "filename": actual_filename,
+                            "metadata": {"file_id": file_id, "status": "completed", "filename": actual_filename}
+                        }
+                        indexing_status[file_id] = {
+                            "status": "completed",
+                            "message": "Found in Qdrant"
+                        }
+                        logger.info(f"   - ✅ File found in Qdrant with filename: {actual_filename}")
+                        continue
+                    except Exception as e:
+                        logger.warning(f"   - ⚠️ File not found in Qdrant: {str(e)}")
+                
                 # Check if file has failed indexing
                 status_info = indexing_status.get(file_id, {"status": "unknown", "message": "File not found"})
                 logger.info(f"   - Status: {status_info}")
@@ -804,6 +1124,23 @@ async def chat_with_file(request: FileChatRequest):
         
         for file_id in request.file_ids:
             file_data = vector_databases[file_id]
+            
+            # Check if vector_db is a placeholder and needs to be loaded from Qdrant
+            if file_data["vector_db"] is None and USE_QDRANT:
+                logger.info(f"🔄 Loading vector database from Qdrant for {file_id}")
+                try:
+                    # Create a new vector database instance and load from Qdrant
+                    vector_db = create_vector_database(file_id)
+                    # The vector database should already contain the data from Qdrant
+                    file_data["vector_db"] = vector_db
+                    logger.info(f"✅ Successfully loaded vector database from Qdrant for {file_id}")
+                except Exception as e:
+                    logger.error(f"❌ Failed to load vector database from Qdrant for {file_id}: {str(e)}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Failed to load vector database for file {file_id}: {str(e)}"
+                    )
+            
             vector_db = file_data["vector_db"]
             
             # Search for relevant chunks
@@ -1008,6 +1345,11 @@ async def upload_file(file: UploadFile = File(...)):
         }
         logger.info(f"💾 Stored metadata for {file_id}: filename={filename}, vector_store_type={vector_store_type}")
         
+        # For Vercel environments, metadata is stored in Qdrant during indexing
+        # For local environments, save to disk
+        if not is_vercel_environment():
+            save_file_metadata()
+        
         if (IS_READONLY and USE_BROWSER_STORAGE and not USE_QDRANT) or (is_vercel_environment() and not USE_QDRANT):
             # Browser storage mode: when read-only + browser storage enabled + no Qdrant, OR Vercel + no Qdrant
             # If Qdrant is available, use server storage mode even on Vercel
@@ -1038,8 +1380,29 @@ async def upload_file(file: UploadFile = File(...)):
                 with open(file_path, "wb") as buffer:
                     buffer.write(content)
             
-            # Start indexing in the background
-            asyncio.create_task(index_file(content, file_id, filename))
+            # Handle indexing differently for Vercel vs local
+            logger.info(f"🔍 Environment check for {file_id}:")
+            logger.info(f"   - IS_READONLY: {IS_READONLY}")
+            logger.info(f"   - is_vercel_environment(): {is_vercel_environment()}")
+            logger.info(f"   - USE_QDRANT: {USE_QDRANT}")
+            logger.info(f"   - File content length: {len(content)} bytes")
+            
+            if is_vercel_environment():
+                # For Vercel, run indexing synchronously to avoid task killing
+                logger.info(f"🚀 Starting synchronous indexing for Vercel environment: {file_id}")
+                try:
+                    await index_file(content, file_id, filename)
+                    logger.info(f"✅ Synchronous indexing completed for {file_id}")
+                except Exception as e:
+                    logger.error(f"❌ Synchronous indexing failed for {file_id}: {str(e)}")
+                    indexing_status[file_id] = {
+                        "status": "failed",
+                        "message": f"Indexing failed: {str(e)}"
+                    }
+            else:
+                # For local development, use background task
+                logger.info(f"🚀 Starting background indexing for local environment: {file_id}")
+                asyncio.create_task(index_file(content, file_id, filename))
             
             # After updating file_metadata[file_id] on upload, persist to disk
             file_metadata[file_id] = {
@@ -1048,8 +1411,7 @@ async def upload_file(file: UploadFile = File(...)):
                 "uploaded_at": datetime.now().isoformat()
             }
             try:
-                with open(FILE_METADATA_PATH, 'w') as f:
-                    json.dump(file_metadata, f)
+                save_file_metadata()
             except Exception as e:
                 logger.warning(f"⚠️ Failed to save file_metadata: {e}")
             
@@ -1209,12 +1571,25 @@ async def delete_file(file_id: str):
             vector_db = vector_data["vector_db"]
             
             # If using Qdrant, we need to delete the collection
-            if USE_QDRANT and hasattr(vector_db, 'delete_collection'):
+            if USE_QDRANT and hasattr(vector_db, 'client'):
                 try:
-                    vector_db.delete_collection()
+                    collection_name = f"documents_{file_id}"
+                    vector_db.client.delete_collection(collection_name=collection_name)
                     logger.info(f"✅ Deleted Qdrant collection for file {file_id}")
                 except Exception as e:
                     logger.warning(f"⚠️ Warning: Could not delete Qdrant collection: {str(e)}")
+                    # Try direct client deletion as fallback
+                    try:
+                        import os
+                        from qdrant_client import QdrantClient
+                        qdrant_url = os.getenv("QDRANT_URL")
+                        qdrant_api_key = os.getenv("QDRANT_API_KEY")
+                        if qdrant_url and qdrant_api_key:
+                            direct_client = QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
+                            direct_client.delete_collection(collection_name=collection_name)
+                            logger.info(f"✅ Deleted Qdrant collection using direct client for file {file_id}")
+                    except Exception as e2:
+                        logger.error(f"❌ Failed to delete Qdrant collection with direct client: {str(e2)}")
             
             del vector_databases[file_id]
             deleted = True
@@ -1228,6 +1603,14 @@ async def delete_file(file_id: str):
         if file_id in memory_stored_files:
             del memory_stored_files[file_id]
             deleted = True
+        
+        # Remove from file metadata
+        if file_id in file_metadata:
+            del file_metadata[file_id]
+            deleted = True
+            # Save updated metadata to disk (for local environments)
+            if not is_vercel_environment():
+                save_file_metadata()
         
         # Remove from disk (non-read-only mode)
         if not IS_READONLY:
@@ -1278,12 +1661,25 @@ async def delete_all_files():
                     vector_db = vector_data["vector_db"]
                     
                     # If using Qdrant, we need to delete the collection
-                    if USE_QDRANT and hasattr(vector_db, 'delete_collection'):
+                    if USE_QDRANT and hasattr(vector_db, 'client'):
                         try:
-                            vector_db.delete_collection()
+                            collection_name = f"documents_{file_id}"
+                            vector_db.client.delete_collection(collection_name=collection_name)
                             logger.info(f"✅ Deleted Qdrant collection for file {file_id}")
                         except Exception as e:
                             logger.warning(f"⚠️ Warning: Could not delete Qdrant collection: {str(e)}")
+                            # Try direct client deletion as fallback
+                            try:
+                                import os
+                                from qdrant_client import QdrantClient
+                                qdrant_url = os.getenv("QDRANT_URL")
+                                qdrant_api_key = os.getenv("QDRANT_API_KEY")
+                                if qdrant_url and qdrant_api_key:
+                                    direct_client = QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
+                                    direct_client.delete_collection(collection_name=collection_name)
+                                    logger.info(f"✅ Deleted Qdrant collection using direct client for file {file_id}")
+                            except Exception as e2:
+                                logger.error(f"❌ Failed to delete Qdrant collection with direct client: {str(e2)}")
                     
                     del vector_databases[file_id]
                 
@@ -1295,6 +1691,10 @@ async def delete_all_files():
                 if file_id in memory_stored_files:
                     del memory_stored_files[file_id]
                 
+                # Remove from file metadata
+                if file_id in file_metadata:
+                    del file_metadata[file_id]
+                
                 deleted_count += 1
                 
             except Exception as e:
@@ -1302,6 +1702,15 @@ async def delete_all_files():
         
         # Clear all chat sessions
         chat_sessions.clear()
+        
+        # For Vercel environments, clear all Qdrant collections
+        if is_vercel_environment() and USE_QDRANT:
+            qdrant_deleted = clear_all_qdrant_collections()
+            logger.info(f"🗑️ Cleared {qdrant_deleted} Qdrant collections for Vercel")
+        
+        # Save updated metadata to disk (for local environments)
+        if not is_vercel_environment():
+            save_file_metadata()
         
         # Remove from disk (non-read-only mode)
         if not IS_READONLY:
@@ -1333,6 +1742,7 @@ async def test_pdf_processing(file: UploadFile = File(...)):
         
         # Test PDF processing
         documents = []
+        method = "Failed"
         
         # Method 1: Try PDFLoader
         try:
@@ -1353,7 +1763,7 @@ async def test_pdf_processing(file: UploadFile = File(...)):
                         text = page.extract_text()
                         if text.strip():
                             documents.append(text)
-                method = "PyPDF2"
+                    method = "PyPDF2"
             except Exception as e2:
                 logger.warning(f"PyPDF2 failed: {str(e2)}")
                 
@@ -1390,6 +1800,136 @@ async def test_pdf_processing(file: UploadFile = File(...)):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"PDF processing test failed: {str(e)}")
+
+def clear_all_qdrant_collections():
+    """Clear all Qdrant collections for Vercel environments"""
+    if not is_vercel_environment() or not USE_QDRANT:
+        return
+    
+    try:
+        import os
+        from qdrant_client import QdrantClient
+        
+        qdrant_url = os.getenv("QDRANT_URL")
+        qdrant_api_key = os.getenv("QDRANT_API_KEY")
+        
+        if not qdrant_url or not qdrant_api_key:
+            logger.warning("⚠️ Qdrant credentials not found, skipping collection clearing")
+            return
+        
+        client = QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
+        collections = client.get_collections()
+        
+        deleted_count = 0
+        for collection in collections.collections:
+            collection_name = collection.name
+            if collection_name.startswith("documents_"):
+                try:
+                    client.delete_collection(collection_name=collection_name)
+                    deleted_count += 1
+                    logger.info(f"✅ Deleted Qdrant collection: {collection_name}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to delete collection {collection_name}: {str(e)}")
+        
+        logger.info(f"🗑️ Cleared {deleted_count} Qdrant collections")
+        return deleted_count
+    except Exception as e:
+        logger.error(f"❌ Failed to clear Qdrant collections: {str(e)}")
+        return 0
+
+def refresh_file_metadata_from_qdrant(file_id: str):
+    """Refresh file metadata from Qdrant for a specific file"""
+    if not is_vercel_environment() or not USE_QDRANT:
+        return None
+    
+    try:
+        import os
+        from qdrant_client import QdrantClient
+        
+        qdrant_url = os.getenv("QDRANT_URL")
+        qdrant_api_key = os.getenv("QDRANT_API_KEY")
+        
+        if not qdrant_url or not qdrant_api_key:
+            return None
+        
+        client = QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
+        collection_name = f"documents_{file_id}"
+        
+        # Check if collection exists
+        try:
+            collection_info = client.get_collection(collection_name=collection_name)
+            if collection_info.points_count == 0:
+                return None
+        except Exception:
+            return None
+        
+        # Try to get metadata from collection
+        try:
+            points = client.scroll(
+                collection_name=collection_name,
+                limit=1,
+                with_payload=True
+            )
+            
+            if points[0] and len(points[0]) > 0:
+                point = points[0][0]
+                metadata = point.payload
+                if metadata and "filename" in metadata:
+                    filename = metadata["filename"]
+                    file_metadata[file_id] = {
+                        "filename": filename,
+                        "vector_store_type": "qdrant",
+                        "uploaded_at": datetime.now().isoformat()
+                    }
+                    logger.info(f"🔄 Refreshed metadata for {file_id}: {filename}")
+                    return filename
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to refresh metadata for {file_id}: {str(e)}")
+        
+        return None
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to refresh metadata for {file_id}: {str(e)}")
+        return None
+
+def store_metadata_in_qdrant(file_id: str, filename: str):
+    """Store metadata in Qdrant collection for persistent access"""
+    if not is_vercel_environment() or not USE_QDRANT:
+        return
+    
+    try:
+        import os
+        from qdrant_client import QdrantClient
+        
+        qdrant_url = os.getenv("QDRANT_URL")
+        qdrant_api_key = os.getenv("QDRANT_API_KEY")
+        
+        if not qdrant_url or not qdrant_api_key:
+            return
+        
+        client = QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
+        collection_name = f"documents_{file_id}"
+        
+        # Create a metadata point with the filename
+        metadata_point = {
+            "id": f"{file_id}_metadata",
+            "vector": [0.0] * 1536,  # Dummy vector
+            "payload": {
+                "filename": filename,
+                "file_id": file_id,
+                "metadata_type": "file_info",
+                "uploaded_at": datetime.now().isoformat()
+            }
+        }
+        
+        # Upsert the metadata point
+        client.upsert(
+            collection_name=collection_name,
+            points=[metadata_point]
+        )
+        
+        logger.info(f"💾 Stored metadata in Qdrant for {file_id}: {filename}")
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to store metadata in Qdrant for {file_id}: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
