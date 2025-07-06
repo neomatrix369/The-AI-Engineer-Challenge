@@ -4,6 +4,10 @@ import openai
 from typing import List
 import os
 import asyncio
+import logging
+
+# Set up logger for this module
+logger = logging.getLogger(__name__)
 
 
 class EmbeddingModel:
@@ -51,8 +55,8 @@ class EmbeddingModel:
 
 if __name__ == "__main__":
     embedding_model = EmbeddingModel()
-    print(asyncio.run(embedding_model.async_get_embedding("Hello, world!")))
-    print(
+    logger.info(asyncio.run(embedding_model.async_get_embedding("Hello, world!")))
+    logger.info(
         asyncio.run(
             embedding_model.async_get_embeddings(["Hello, world!", "Goodbye, world!"])
         )

@@ -6,3 +6,4 @@ python-multipart==0.0.18
 dotenv
 PyPDF2==3.0.1
 numpy>=1.26.0
+qdrant-client>=1.7.0
