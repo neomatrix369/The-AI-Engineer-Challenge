@@ -1,11 +1,31 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { api } from '@/services/api';
+import { api, getBrowserStoredFiles, setBrowserStoredFiles } from '@/services/api';
 import type { FileInfo } from '@/services/api';
+import { getEnvironmentConfig } from '@/config/features';
 
 interface FileUploadProps {
   onFileListChange?: () => void;
+}
+
+// Helper to store file metadata in browser storage
+function storeFileMetadataInBrowser(fileId: string, filename: string, vectorStoreType: string) {
+  const files = getBrowserStoredFiles();
+  files[fileId] = {
+    ...files[fileId],
+    filename,
+    vector_store_type: vectorStoreType,
+    uploaded_at: Date.now(),
+  };
+  setBrowserStoredFiles(files);
+}
+
+// Helper to remove file metadata from browser storage
+function removeFileMetadataFromBrowser(fileId: string) {
+  const files = getBrowserStoredFiles();
+  delete files[fileId];
+  setBrowserStoredFiles(files);
 }
 
 export default function FileUpload({ onFileListChange }: FileUploadProps) {
@@ -14,6 +34,7 @@ export default function FileUpload({ onFileListChange }: FileUploadProps) {
   const [uploadMessage, setUploadMessage] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [browserFiles, setBrowserFiles] = useState<Record<string, any>>({});
 
   // Load existing files on component mount
   useEffect(() => {
@@ -33,34 +54,48 @@ export default function FileUpload({ onFileListChange }: FileUploadProps) {
     indexExistingFiles();
   }, []);
 
+  // Load browser-stored files on mount
+  useEffect(() => {
+    setBrowserFiles(getBrowserStoredFiles());
+  }, []);
+
   // Set up polling for indexing status updates
   useEffect(() => {
     const interval = setInterval(async () => {
       // Only poll if there are files that are still being indexed
-      const hasIndexingFiles = files.some(file => 
+      const hasIndexingFiles = files && files.length > 0 && files.some(file => 
         file.indexing_status === 'pending' || file.indexing_status === 'indexing'
       );
       
       if (hasIndexingFiles) {
         // Check status without full reload to avoid flickering
         try {
-          const response = await api.listFiles();
-          const newFiles = response.files;
+          const newFiles = await api.listFiles();
           
-          // Only update if status actually changed
-          let hasChanges = false;
-          for (let i = 0; i < files.length; i++) {
-            const oldFile = files[i];
-            const newFile = newFiles.find(f => f.file_id === oldFile.file_id);
-            if (newFile && newFile.indexing_status !== oldFile.indexing_status) {
-              hasChanges = true;
-              break;
-            }
-          }
-          
-          if (hasChanges) {
-            setFiles(newFiles);
-          }
+          // Update files while preserving real filenames
+          setFiles(prevFiles => {
+            return prevFiles.map(prevFile => {
+              const newFile = newFiles.find((f: FileInfo) => f.file_id === prevFile.file_id);
+              if (newFile) {
+                // Preserve the real filename if we have it, otherwise use the backend filename
+                const realFilename = prevFile.filename && !prevFile.filename.startsWith('File_') 
+                  ? prevFile.filename 
+                  : newFile.filename;
+                
+                // Preserve the vector store type if we have it, otherwise use the backend value
+                const realVectorStoreType = prevFile.vector_store_type && prevFile.vector_store_type !== 'Unknown'
+                  ? prevFile.vector_store_type
+                  : newFile.vector_store_type;
+                
+                return {
+                  ...newFile,
+                  filename: realFilename,
+                  vector_store_type: realVectorStoreType
+                };
+              }
+              return prevFile;
+            });
+          });
         } catch (error) {
           console.error('Failed to check file status:', error);
         }
@@ -70,19 +105,43 @@ export default function FileUpload({ onFileListChange }: FileUploadProps) {
     return () => clearInterval(interval);
   }, [files]);
 
+  // Enhance: On every file list load, merge backend and browser-stored metadata
+  const mergeFilesWithBrowserMetadata = (backendFiles: FileInfo[]) => {
+    const browserFiles = getBrowserStoredFiles();
+    console.log('🔍 Browser files:', browserFiles);
+    return backendFiles.map(file => {
+      const browserMeta = browserFiles[file.file_id];
+      console.log(`🔍 File ${file.file_id}:`, {
+        backend_filename: file.filename,
+        backend_vector_store: file.vector_store_type,
+        browser_filename: browserMeta?.filename,
+        browser_vector_store: browserMeta?.vector_store_type
+      });
+      return {
+        ...file,
+        filename: (file.filename && !file.filename.startsWith('File_')) ? file.filename : (browserMeta?.filename || file.filename),
+        vector_store_type: (file.vector_store_type && file.vector_store_type !== 'Unknown') ? file.vector_store_type : (browserMeta?.vector_store_type || file.vector_store_type),
+      };
+    });
+  };
+
+  // Update loadFiles to use merge
   const loadFiles = async () => {
     try {
       setIsLoading(true);
-      const response = await api.listFiles();
-      setFiles(response.files);
+      const files = await api.listFiles();
+      const mergedFiles = mergeFilesWithBrowserMetadata(files);
+      setFiles(mergedFiles);
     } catch (error) {
       console.error('Failed to load files:', error);
       setUploadMessage('Failed to load existing files');
+      setFiles([]);
     } finally {
       setIsLoading(false);
     }
   };
 
+  // On upload, store metadata in browser storage
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -100,12 +159,22 @@ export default function FileUpload({ onFileListChange }: FileUploadProps) {
       setUploadMessage('');
       
       const response = await api.uploadFile(file);
+      console.log('📤 Upload response:', response);
       setUploadMessage(`Successfully uploaded: ${response.filename}. Indexing will start shortly...`);
       
-      // Reload the file list
-      await loadFiles();
+      // Store metadata in browser storage
+      storeFileMetadataInBrowser(response.file_id, response.filename, response.vector_store_type);
+      console.log('💾 Stored in browser:', response.file_id, response.filename, response.vector_store_type);
       
-      // Clear the file input
+      // Add the new file to the local state immediately with the real filename
+      const newFile: FileInfo = {
+        file_id: response.file_id,
+        filename: response.filename,
+        indexing_status: response.indexing_status,
+        message: response.message,
+        vector_store_type: response.vector_store_type
+      };
+      setFiles(prev => [...prev, newFile]);
       event.target.value = '';
     } catch (error) {
       console.error('Upload failed:', error);
@@ -115,21 +184,16 @@ export default function FileUpload({ onFileListChange }: FileUploadProps) {
     }
   };
 
+  // On delete, remove metadata from browser storage
   const handleDeleteFile = async (fileId: string) => {
     try {
       setIsDeleting(true);
       await api.deleteFile(fileId);
-      
-      // Remove from local state
       setFiles(prev => prev.filter(file => file.file_id !== fileId));
-      
       setUploadMessage(`File deleted successfully`);
-      
-      // Clear message after 3 seconds
       setTimeout(() => setUploadMessage(''), 3000);
-      
-      // Notify parent component about file list change
       onFileListChange?.();
+      removeFileMetadataFromBrowser(fileId);
     } catch (error) {
       console.error('Failed to delete file:', error);
       setUploadMessage(`Failed to delete file: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -138,26 +202,22 @@ export default function FileUpload({ onFileListChange }: FileUploadProps) {
     }
   };
 
+  // On delete all, remove all browser metadata
   const handleDeleteAllFiles = async () => {
     if (!confirm('Are you sure you want to delete all files? This action cannot be undone.')) {
       return;
     }
-    
     try {
       setIsDeleting(true);
-      const deletePromises = files.map(file => api.deleteFile(file.file_id));
-      await Promise.all(deletePromises);
-      
-      // Clear all files
+      const deletePromises = files && files.map(file => api.deleteFile(file.file_id));
+      if (deletePromises) {
+        await Promise.all(deletePromises);
+      }
       setFiles([]);
-      
       setUploadMessage(`All files deleted successfully`);
-      
-      // Clear message after 3 seconds
       setTimeout(() => setUploadMessage(''), 3000);
-      
-      // Notify parent component about file list change
       onFileListChange?.();
+      setBrowserStoredFiles({});
     } catch (error) {
       console.error('Failed to delete all files:', error);
       setUploadMessage(`Failed to delete all files: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -174,8 +234,12 @@ export default function FileUpload({ onFileListChange }: FileUploadProps) {
     switch (status) {
       case 'pending':
         return (
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-            Pending
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+            <svg className="animate-spin -ml-1 mr-2 h-3 w-3 text-blue-800" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            Indexing
           </span>
         );
       case 'indexing':
@@ -215,9 +279,23 @@ export default function FileUpload({ onFileListChange }: FileUploadProps) {
     }
   };
 
+  const envConfig = getEnvironmentConfig();
+
   return (
     <div className="max-w-2xl mx-auto p-6 bg-white rounded-lg shadow-md">
-      <h2 className="text-2xl font-bold mb-6 text-gray-800">File Upload</h2>
+      <div className="mb-6">
+        <h2 className="text-2xl font-bold text-gray-800">File Upload</h2>
+        <div className="mt-2 flex items-center space-x-4 text-sm text-gray-600">
+          <span className="flex items-center">
+            <span className="w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
+            {envConfig.getEnvironmentDescription()}
+          </span>
+          <span className="flex items-center">
+            <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+            {envConfig.getStorageDescription()}
+          </span>
+        </div>
+      </div>
       
       {/* Upload Section */}
       <div className="mb-8">
@@ -260,7 +338,7 @@ export default function FileUpload({ onFileListChange }: FileUploadProps) {
       <div>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-gray-700">Uploaded Files</h3>
-          {files.length > 0 && (
+          {files && files.length > 0 && (
             <button
               onClick={handleDeleteAllFiles}
               disabled={isDeleting}
@@ -283,40 +361,44 @@ export default function FileUpload({ onFileListChange }: FileUploadProps) {
           </div>
         ) : (
           <div className="space-y-3">
-            {files.map((file) => (
-              <div
-                key={file.file_id}
-                className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border"
-              >
-                <div className="flex-1">
-                  <p className="font-medium text-gray-800">{file.original_filename}</p>
-                  <p className="text-sm text-gray-500">
-                    Uploaded: {formatDate(file.uploaded_at)}
-                  </p>
-                  {(file.indexing_status === 'pending' || file.indexing_status === 'indexing') && (
-                    <p className="text-sm text-blue-600 mt-1">
-                      {file.indexing_message}
+            {files && files.map((file) => {
+              return (
+                <div
+                  key={file.file_id}
+                  className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border"
+                >
+                  <div className="flex-1">
+                    <p className="font-medium text-gray-800">
+                      {file.filename || '(Indexing or unknown filename)'}
                     </p>
-                  )}
-                  {file.indexing_status === 'failed' && (
-                    <p className="text-sm text-red-600 mt-1">
-                      {file.indexing_message}
+                    <p className="text-sm text-gray-500">
+                      Type: {file.filename ? file.filename.split('.').pop()?.toUpperCase() || 'Unknown' : 'Unknown' }
                     </p>
-                  )}
+                    {(file.indexing_status === 'pending' || file.indexing_status === 'indexing') && (
+                      <p className="text-sm text-blue-600 mt-1">
+                        {file.message}
+                      </p>
+                    )}
+                    {file.indexing_status === 'failed' && (
+                      <p className="text-sm text-red-600 mt-1">
+                        {file.message}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    {getStatusBadge(file.indexing_status)}
+                    <button
+                      onClick={() => handleDeleteFile(file.file_id)}
+                      disabled={isDeleting}
+                      className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      title="Delete file"
+                    >
+                      🗑️
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center space-x-3">
-                  {getStatusBadge(file.indexing_status)}
-                  <button
-                    onClick={() => handleDeleteFile(file.file_id)}
-                    disabled={isDeleting}
-                    className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    title="Delete file"
-                  >
-                    🗑️
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

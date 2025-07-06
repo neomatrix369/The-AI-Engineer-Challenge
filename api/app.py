@@ -17,7 +17,7 @@ from datetime import datetime
 
 # Import aimakerspace components for PDF processing and indexing
 from aimakerspace.text_utils import PDFLoader, CharacterTextSplitter
-from aimakerspace.vectordatabase import VectorDatabase
+from aimakerspace.vectordatabase import VectorDatabase, QdrantVectorDatabase
 
 load_dotenv()
 
@@ -26,6 +26,19 @@ app = FastAPI(title="OpenAI Chat API")
 
 # Get the frontend URL from environment or use a default
 FRONTEND_URL = os.getenv("NEXT_PUBLIC_API_URL", "http://localhost:3000")
+
+# Feature flags
+USE_QDRANT = os.getenv("USE_QDRANT", "false").lower() == "true"
+USE_BROWSER_STORAGE = os.getenv("USE_BROWSER_STORAGE", "true").lower() == "true"
+
+# Environment detection
+def is_vercel_environment():
+    """Check if we're running on Vercel"""
+    return os.getenv("VERCEL") == "1"
+
+def is_local_environment():
+    """Check if we're running locally"""
+    return not is_vercel_environment()
 
 # Create uploads directory if it doesn't exist
 UPLOADS_DIR = Path("uploads")
@@ -46,10 +59,16 @@ def is_readonly_environment():
     except (OSError, PermissionError):
         return True
 
-# Check if we're in read-only mode
+# Global readonly flag
 IS_READONLY = is_readonly_environment()
 
-# Add CORS middleware
+# Create directories if not readonly
+if not IS_READONLY:
+    UPLOADS_DIR.mkdir(exist_ok=True)
+    INDEXES_DIR.mkdir(exist_ok=True)
+    CHAT_HISTORY_DIR.mkdir(exist_ok=True)
+
+# Configure CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[FRONTEND_URL, "http://localhost:3000", "https://localhost:3000"],
@@ -58,159 +77,52 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# File type detection and validation
-SUPPORTED_EXTENSIONS = {'.pdf', '.md', '.txt', '.csv', '.json'}
+# Supported file extensions
+SUPPORTED_EXTENSIONS = ['.pdf', '.md', '.txt', '.csv', '.json']
 
+# File type detection
 def get_file_type(filename: str) -> str:
-    """Detect file type based on extension"""
-    ext = filename.lower().split('.')[-1]
-    if ext == 'pdf':
+    """Determine file type based on extension"""
+    ext = Path(filename).suffix.lower()
+    if ext == '.pdf':
         return 'pdf'
-    elif ext in ['md', 'txt']:
+    elif ext in ['.md', '.txt']:
         return 'text'
-    elif ext == 'csv':
+    elif ext == '.csv':
         return 'csv'
-    elif ext == 'json':
+    elif ext == '.json':
         return 'json'
-    return 'unknown'
+    else:
+        return 'unknown'
 
 def is_supported_file(filename: str) -> bool:
     """Check if file type is supported"""
-    ext = '.' + filename.lower().split('.')[-1]
-    return ext in SUPPORTED_EXTENSIONS
+    return get_file_type(filename) != 'unknown'
 
-def extract_text_content(file_content: bytes) -> List[str]:
-    """Extract text content from markdown or text files"""
-    try:
-        text = file_content.decode('utf-8')
-        # For markdown files, we can keep the structure for better chunking
-        return [text]
-    except UnicodeDecodeError:
-        # Try with different encoding if UTF-8 fails
-        try:
-            text = file_content.decode('latin-1')
-            return [text]
-        except:
-            raise ValueError("Could not decode file content")
-
-def extract_csv_content(file_content: bytes) -> List[str]:
-    """Extract text content from CSV files"""
-    try:
-        import csv
-        from io import StringIO
-        
-        # Decode the content
-        text = file_content.decode('utf-8')
-        csv_file = StringIO(text)
-        
-        # Parse CSV and convert to text chunks
-        reader = csv.reader(csv_file)
-        rows = list(reader)
-        
-        if not rows:
-            raise ValueError("CSV file is empty")
-        
-        # Convert CSV to structured text
-        text_chunks = []
-        for i, row in enumerate(rows):
-            if i == 0:  # Header row
-                header = " | ".join(row)
-                text_chunks.append(f"Headers: {header}")
-            else:  # Data row
-                row_text = " | ".join(str(cell) for cell in row)
-                text_chunks.append(f"Row {i}: {row_text}")
-        
-        return text_chunks
-    except UnicodeDecodeError:
-        # Try with different encoding if UTF-8 fails
-        try:
-            text = file_content.decode('latin-1')
-            csv_file = StringIO(text)
-            reader = csv.reader(csv_file)
-            rows = list(reader)
-            
-            if not rows:
-                raise ValueError("CSV file is empty")
-            
-            text_chunks = []
-            for i, row in enumerate(rows):
-                if i == 0:
-                    header = " | ".join(row)
-                    text_chunks.append(f"Headers: {header}")
-                else:
-                    row_text = " | ".join(str(cell) for cell in row)
-                    text_chunks.append(f"Row {i}: {row_text}")
-            
-            return text_chunks
-        except:
-            raise ValueError("Could not decode CSV file content")
-
-def extract_json_content(file_content: bytes) -> List[str]:
-    """Extract text content from JSON files"""
-    try:
-        import json
-        data = json.loads(file_content.decode('utf-8'))
-        
-        # Convert JSON to readable text chunks
-        text_chunks = []
-        
-        def flatten_json(obj, path=""):
-            if isinstance(obj, dict):
-                for key, value in obj.items():
-                    new_path = f"{path}.{key}" if path else key
-                    flatten_json(value, new_path)
-            elif isinstance(obj, list):
-                for i, item in enumerate(obj):
-                    new_path = f"{path}[{i}]"
-                    flatten_json(item, new_path)
-            else:
-                text_chunks.append(f"{path}: {obj}")
-        
-        flatten_json(data)
-        return text_chunks
-    except UnicodeDecodeError:
-        # Try with different encoding if UTF-8 fails
-        try:
-            data = json.loads(file_content.decode('latin-1'))
-            text_chunks = []
-            
-            def flatten_json(obj, path=""):
-                if isinstance(obj, dict):
-                    for key, value in obj.items():
-                        new_path = f"{path}.{key}" if path else key
-                        flatten_json(value, new_path)
-                elif isinstance(obj, list):
-                    for i, item in enumerate(obj):
-                        new_path = f"{path}[{i}]"
-                        flatten_json(item, new_path)
-                else:
-                    text_chunks.append(f"{path}: {obj}")
-            
-            flatten_json(data)
-            return text_chunks
-        except:
-            raise ValueError("Could not decode JSON file content")
-    except Exception as e:
-        raise ValueError(f"Could not parse JSON: {str(e)}")
-
-# Define the data model for chat requests using Pydantic
-# This ensures incoming request data is properly validated
-class ChatRequest(BaseModel):
-    developer_message: str  # Message from the developer/system
-    user_message: str      # Message from the user
-    model: Optional[str] = "gpt-4.1-mini"  # Optional model selection with default
-
-class FileChatRequest(BaseModel):
-    user_message: str
-    file_ids: List[str]  # Support multiple files
-    session_id: Optional[str] = None
-    model: Optional[str] = "gpt-4.1-mini"
+# Data models
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+    timestamp: Optional[str] = None
 
 class ChatSession(BaseModel):
     session_id: str
     created_at: str
     file_ids: List[str]
-    messages: List[Dict[str, Any]]
+    messages: List[ChatMessage]
+
+class FileChatRequest(BaseModel):
+    user_message: str
+    file_ids: List[str]
+    session_id: Optional[str] = None
+    persona: Optional[str] = None
+    domain: Optional[str] = None
+
+class GeneralChatRequest(BaseModel):
+    user_message: str
+    session_id: Optional[str] = None
+    persona: Optional[str] = None
+    domain: Optional[str] = None
 
 class FileUploadResponse(BaseModel):
     filename: str
@@ -219,20 +131,27 @@ class FileUploadResponse(BaseModel):
     indexing_status: str
     use_browser_storage: bool = False
     file_content: Optional[str] = None  # Base64 encoded file content for browser storage
-
-class FileIndexingStatus(BaseModel):
-    file_id: str
-    status: str  # "pending", "indexing", "completed", "failed"
-    message: str
-
-class ChatHistoryResponse(BaseModel):
-    sessions: List[ChatSession]
+    vector_store_type: str = "memory"  # "memory", "qdrant", or "browser"
 
 class PreIndexedFileRequest(BaseModel):
     file_id: str
     filename: str
     chunks: List[str]
     embeddings: Optional[List[List[float]]] = None
+
+# Vector database factory
+def create_vector_database(file_id: str = None):
+    """Create appropriate vector database based on configuration"""
+    if USE_QDRANT:
+        try:
+            collection_name = f"documents_{file_id}" if file_id else "documents"
+            return QdrantVectorDatabase(collection_name=collection_name)
+        except Exception as e:
+            print(f"⚠️ Qdrant initialization failed: {str(e)}")
+            print("⚠️ Falling back to in-memory vector database")
+            return VectorDatabase()
+    else:
+        return VectorDatabase()
 
 # In-memory storage for indexing status (in production, use a proper database)
 indexing_status = {}
@@ -245,6 +164,20 @@ chat_sessions: Dict[str, ChatSession] = {}
 
 # In-memory storage for files when in read-only mode
 memory_stored_files: Dict[str, bytes] = {}
+
+# Store file metadata immediately for list_files endpoint
+file_metadata = {}
+
+# Load file_metadata from disk on startup
+try:
+    if FILE_METADATA_PATH.exists():
+        with open(FILE_METADATA_PATH, 'r') as f:
+            file_metadata = json.load(f)
+    else:
+        file_metadata = {}
+except Exception as e:
+    print(f"⚠️ Failed to load file_metadata: {e}")
+    file_metadata = {}
 
 def save_chat_session(session: ChatSession):
     """Save chat session to file or memory"""
@@ -275,58 +208,169 @@ def load_chat_session(session_id: str) -> Optional[ChatSession]:
         print(f"Warning: Failed to load chat session: {e}")
     return None
 
-def get_all_chat_sessions() -> List[ChatSession]:
-    """Get all chat sessions from files or memory"""
-    if IS_READONLY:
-        return list(chat_sessions.values())
-    
-    sessions = []
+# Text extraction functions
+def extract_text_content(content: bytes) -> List[str]:
+    """Extract text content from various file types"""
     try:
-        for session_file in CHAT_HISTORY_DIR.glob("*.json"):
-            with open(session_file, 'r') as f:
-                data = json.load(f)
-                sessions.append(ChatSession(**data))
-    except Exception as e:
-        print(f"Warning: Failed to load chat sessions: {e}")
-    return sessions
+        text = content.decode('utf-8')
+        return [text]
+    except UnicodeDecodeError:
+        return []
 
-# Define the main chat endpoint that handles POST requests
-@app.post("/api/chat")
-async def chat(request: ChatRequest):
+def extract_csv_content(content: bytes) -> List[str]:
+    """Extract and format CSV content"""
     try:
-        # Initialize OpenAI client with the provided API key
-        api_key = os.getenv("OPENAI_API_KEY")
-        if api_key and (len(api_key) > 0):
-            print('INFO: OPENAI_API_KEY has been set')
-        else:
-            print('WARNING: OPENAI_API_KEY has NOT set, please check Environment variables settings.')
-
-        client = OpenAI(api_key=api_key)
+        import csv
+        from io import StringIO
         
-        # Create an async generator function for streaming responses
-        async def generate():
-            # Create a streaming chat completion request
-            stream = client.chat.completions.create(
-                model=request.model,
-                messages=[
-                    {"role": "developer", "content": request.developer_message},
-                    {"role": "user", "content": request.user_message}
-                ],
-                stream=True  # Enable streaming response
-            )
-            
-            # Yield each chunk of the response as it becomes available
-            for chunk in stream:
-                if chunk.choices[0].delta.content is not None:
-                    yield chunk.choices[0].delta.content
-
-        # Return a streaming response to the client
-        return StreamingResponse(generate(), media_type="text/plain")
-    
+        text = content.decode('utf-8')
+        csv_file = StringIO(text)
+        reader = csv.DictReader(csv_file)
+        
+        # Convert CSV to formatted text
+        rows = list(reader)
+        if not rows:
+            return []
+        
+        # Get headers
+        headers = list(rows[0].keys())
+        
+        # Format as text
+        formatted_rows = []
+        for i, row in enumerate(rows):
+            row_text = f"Row {i+1}: " + " | ".join([f"{header}: {value}" for header, value in row.items()])
+            formatted_rows.append(row_text)
+        
+        return formatted_rows
     except Exception as e:
-        # Handle any errors that occur during processing
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Error processing CSV: {e}")
+        return []
 
+def extract_json_content(content: bytes) -> List[str]:
+    """Extract and format JSON content"""
+    try:
+        import json
+        
+        data = json.loads(content.decode('utf-8'))
+        
+        def flatten_json(obj, prefix=""):
+            """Flatten JSON object into key-value pairs"""
+            items = []
+            if isinstance(obj, dict):
+                for key, value in obj.items():
+                    new_prefix = f"{prefix}.{key}" if prefix else key
+                    items.extend(flatten_json(value, new_prefix))
+            elif isinstance(obj, list):
+                for i, item in enumerate(obj):
+                    new_prefix = f"{prefix}[{i}]" if prefix else f"[{i}]"
+                    items.extend(flatten_json(item, new_prefix))
+            else:
+                items.append(f"{prefix}: {obj}")
+            return items
+        
+        flattened = flatten_json(data)
+        return flattened
+    except Exception as e:
+        print(f"Error processing JSON: {e}")
+        return []
+
+# Health check endpoint
+@app.get("/api/health")
+async def health_check():
+    """Health check endpoint"""
+    return {
+        "status": "ok",
+        "readonly": IS_READONLY,
+        "environment": "vercel" if is_vercel_environment() else "local",
+        "vector_store": "qdrant" if USE_QDRANT else "memory",
+        "browser_storage": USE_BROWSER_STORAGE,
+        "features": {
+            "qdrant": USE_QDRANT,
+            "browser_storage": USE_BROWSER_STORAGE,
+            "readonly": IS_READONLY
+        }
+    }
+
+# File listing endpoint
+@app.get("/api/files")
+async def list_files():
+    """List all uploaded files"""
+    files = []
+    
+    if IS_READONLY:
+        # In read-only mode, return files from memory and vector databases
+        for file_id in set(list(memory_stored_files.keys()) + list(vector_databases.keys())):
+            status_info = indexing_status.get(file_id, {"status": "unknown", "message": "File not found"})
+            
+            # Get the actual filename from file_metadata or vector_databases
+            actual_filename = f"File_{file_id[:8]}"
+            actual_vector_store_type = "browser"
+            
+            if file_id in file_metadata:
+                actual_filename = file_metadata[file_id]["filename"]
+                actual_vector_store_type = file_metadata[file_id]["vector_store_type"]
+                print(f"✅ Found metadata for {file_id}: {actual_filename} ({actual_vector_store_type})")
+            elif file_id in vector_databases and "filename" in vector_databases[file_id]:
+                actual_filename = vector_databases[file_id]["filename"]
+                actual_vector_store_type = "memory" if file_id in vector_databases else "browser"
+                print(f"✅ Found vector database info for {file_id}: {actual_filename}")
+            else:
+                print(f"⚠️ No metadata found for {file_id}, using generic: {actual_filename}")
+            
+            files.append({
+                "file_id": file_id,
+                "filename": actual_filename,
+                "indexing_status": status_info["status"],
+                "message": status_info["message"],
+                "vector_store_type": actual_vector_store_type
+            })
+    else:
+        # In non-read-only mode, scan the uploads directory
+        for extension in SUPPORTED_EXTENSIONS:
+            for file_path in UPLOADS_DIR.glob(f"*{extension}"):
+                # Extract file ID from filename
+                filename_parts = file_path.name.split("_", 1)
+                if len(filename_parts) == 2:
+                    file_id = filename_parts[0]
+                    filename = filename_parts[1]
+                    
+                    status_info = indexing_status.get(file_id, {"status": "unknown", "message": "File not found"})
+                    files.append({
+                        "file_id": file_id,
+                        "filename": filename,
+                        "indexing_status": status_info["status"],
+                        "message": status_info["message"],
+                        "vector_store_type": "memory" if file_id in vector_databases else "disk"
+                    })
+    
+    return {"files": files}
+
+# File status endpoint
+@app.get("/api/files/{file_id}/status")
+async def get_file_status(file_id: str):
+    """Get indexing status for a specific file"""
+    status_info = indexing_status.get(file_id, {"status": "unknown", "message": "File not found"})
+    return status_info
+
+# Chat history endpoint
+@app.get("/api/chat-history")
+async def get_chat_history():
+    """Get all chat sessions"""
+    if IS_READONLY:
+        sessions = list(chat_sessions.values())
+    else:
+        sessions = []
+        for session_file in CHAT_HISTORY_DIR.glob("*.json"):
+            try:
+                with open(session_file, 'r') as f:
+                    data = json.load(f)
+                    sessions.append(ChatSession(**data))
+            except Exception as e:
+                print(f"Warning: Failed to load session {session_file}: {e}")
+    
+    return {"sessions": [session.dict() for session in sessions]}
+
+# File indexing function
 async def index_file(file_content: bytes, file_id: str, filename: str):
     """Index a file using the aimakerspace library"""
     try:
@@ -367,55 +411,41 @@ async def index_file(file_content: bytes, file_id: str, filename: str):
                 print(f"⚠️ PDFLoader failed: {str(e)}")
                 documents = []
             
-            # Method 2: If PDFLoader failed, try PyPDF2
+            # Method 2: Try PyPDF2 if PDFLoader failed
             if not documents:
                 try:
                     import PyPDF2
                     with open(temp_file_path, 'rb') as file:
                         pdf_reader = PyPDF2.PdfReader(file)
                         documents = []
-                        for i, page in enumerate(pdf_reader.pages):
-                            try:
-                                text = page.extract_text()
-                                if text.strip():
-                                    documents.append(f"Page {i+1}: {text.strip()}")
-                            except Exception as page_error:
-                                print(f"⚠️ Error extracting page {i+1}: {str(page_error)}")
+                        for page_num in range(len(pdf_reader.pages)):
+                            page = pdf_reader.pages[page_num]
+                            text = page.extract_text()
+                            if text.strip():
+                                documents.append(text)
                     print(f"✅ PyPDF2 extracted {len(documents)} pages")
                 except Exception as e:
                     print(f"⚠️ PyPDF2 failed: {str(e)}")
                     documents = []
             
-            # Method 3: If both failed, try basic text extraction
+            # Method 3: Basic text extraction as last resort
             if not documents:
                 try:
-                    # Basic text extraction from PDF binary
-                    import re
-                    pdf_text = file_content.decode('utf-8', errors='ignore')
-                    # Extract text patterns from PDF
-                    text_patterns = [
-                        r'\(([^)]*)\)',  # Parenthesized text
-                        r'\[([^\]]*)\]',  # Bracket text
-                        r'BT[\s\S]*?ET',  # PDF text objects
-                        r'Tj\s*\(([^)]*)\)',  # PDF text content
-                    ]
-                    
-                    for pattern in text_patterns:
-                        matches = re.findall(pattern, pdf_text)
-                        if matches:
-                            documents.extend(matches)
-                    
-                    # Clean up extracted text
-                    documents = [doc for doc in documents if len(doc.strip()) > 10]
-                    print(f"✅ Basic extraction found {len(documents)} text chunks")
+                    import PyPDF2
+                    with open(temp_file_path, 'rb') as file:
+                        pdf_reader = PyPDF2.PdfReader(file)
+                        documents = []
+                        for page in pdf_reader.pages:
+                            text = page.extract_text()
+                            if text.strip():
+                                documents.append(text)
+                    print(f"✅ Basic extraction got {len(documents)} pages")
                 except Exception as e:
                     print(f"⚠️ Basic extraction failed: {str(e)}")
                     documents = []
             
             if not documents:
-                raise ValueError("No text could be extracted from the PDF using any method")
-            
-            print(f"📄 Total extracted text chunks: {len(documents)}")
+                raise ValueError("Could not extract text from PDF using any method")
             
             # Split text into chunks
             splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
@@ -463,14 +493,15 @@ async def index_file(file_content: bytes, file_id: str, filename: str):
             "message": f"Creating embeddings for {len(chunks)} text chunks..."
         }
         
-        # Create vector database
-        vector_db = VectorDatabase()
-        await vector_db.abuild_from_list(chunks)
+        # Create vector database based on configuration
+        vector_db = create_vector_database(file_id)
+        await vector_db.abuild_from_list(chunks, metadata={"file_id": file_id, "filename": filename})
         
         # Store the vector database in memory for quick access
         vector_databases[file_id] = {
             "vector_db": vector_db,
-            "chunks": chunks
+            "chunks": chunks,
+            "filename": filename
         }
         
         # Save the vector database metadata
@@ -478,7 +509,8 @@ async def index_file(file_content: bytes, file_id: str, filename: str):
             "file_id": file_id,
             "chunks_count": len(chunks),
             "indexed_at": asyncio.get_event_loop().time(),
-            "status": "completed"
+            "status": "completed",
+            "vector_store_type": "qdrant" if USE_QDRANT else "memory"
         }
         
         if not IS_READONLY:
@@ -575,23 +607,8 @@ async def chat_with_file(request: FileChatRequest):
             all_relevant_chunks.extend(relevant_chunks)
             
             # Get file name for context
-            if IS_READONLY:
-                # In read-only mode, we don't have file paths, so use the ID
-                file_names.append(f"File_{file_id[:8]}")
-            else:
-                # Find the file by ID
-                found_file = None
-                for extension in SUPPORTED_EXTENSIONS:
-                    files = [f for f in UPLOADS_DIR.glob(f"*{extension}") if f.name.startswith(file_id)]
-                    if files:
-                        found_file = files[0]
-                        break
-                
-                if found_file:
-                    file_name = "_".join(found_file.name.split("_")[1:])
-                    file_names.append(file_name)
-                else:
-                    file_names.append(f"File_{file_id[:8]}")
+            filename = file_data.get("filename", f"File_{file_id[:8]}")
+            file_names.append(filename)
         
         if not all_relevant_chunks:
             raise HTTPException(
@@ -601,110 +618,152 @@ async def chat_with_file(request: FileChatRequest):
         
         # Create context from relevant chunks
         context = "\n\n".join(all_relevant_chunks)
-        file_list = ", ".join(file_names) if file_names else "selected files"
         
-        # Create the system message with context
-        system_message = f"""You are a helpful AI assistant that answers questions based on the provided file content.
-
-File Sources: {file_list}
-
-File Context:
-{context}
-
-Instructions:
-- Answer questions based ONLY on the information provided in the file context above
-- If the question cannot be answered from the file content, say "I cannot answer this question based on the provided file content"
-- Be accurate and helpful
-- Cite specific parts of the files when possible
-- If multiple files are referenced, specify which file contains the information"""
-
-        # Initialize OpenAI client
+        # Build system prompt with persona and domain guidance
+        system_prompt = "You are a helpful AI assistant that answers questions based on the provided file content. "
+        
+        if request.persona:
+            system_prompt += f"\n\nPersona: {request.persona}"
+        
+        if request.domain:
+            system_prompt += f"\n\nDomain Context: {request.domain}"
+        
+        system_prompt += f"\n\nRelevant file content:\n{context}\n\nAnswer the user's question based on this content. If the answer cannot be found in the provided content, say so."
+        
+        # Get OpenAI API key
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise HTTPException(status_code=500, detail="OpenAI API key not configured")
         
+        # Create OpenAI client
         client = OpenAI(api_key=api_key)
         
         # Add user message to session
-        session.messages.append({
-            "role": "user",
-            "content": request.user_message,
-            "timestamp": datetime.now().isoformat()
-        })
+        session.messages.append(ChatMessage(
+            role="user",
+            content=request.user_message,
+            timestamp=datetime.now().isoformat()
+        ))
         
-        # Create an async generator function for streaming responses
-        async def generate():
+        # Save session
+        save_chat_session(session)
+        
+        # Create chat completion
+        def generate_response():
             try:
-                # Create a streaming chat completion request
-                stream = client.chat.completions.create(
-                    model=request.model,
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
                     messages=[
-                        {"role": "system", "content": system_message},
+                        {"role": "system", "content": system_prompt},
                         {"role": "user", "content": request.user_message}
                     ],
-                    stream=True  # Enable streaming response
+                    stream=True,
+                    temperature=0.7,
+                    max_tokens=1000
                 )
                 
-                response_content = ""
+                for chunk in response:
+                    if chunk.choices[0].delta.content:
+                        yield f"data: {json.dumps({'content': chunk.choices[0].delta.content})}\n\n"
                 
-                # Yield each chunk of the response as it becomes available
-                for chunk in stream:
-                    if chunk.choices[0].delta.content is not None:
-                        content = chunk.choices[0].delta.content
-                        response_content += content
-                        yield content
-                
-                # Add AI response to session
-                session.messages.append({
-                    "role": "assistant",
-                    "content": response_content,
-                    "timestamp": datetime.now().isoformat()
-                })
-                
-                # Save session
+                # Add assistant response to session
+                session.messages.append(ChatMessage(
+                    role="assistant",
+                    content="[Streamed response]",
+                    timestamp=datetime.now().isoformat()
+                ))
                 save_chat_session(session)
                 
             except Exception as e:
-                # Add error message to session
-                error_msg = f"Error: {str(e)}"
-                session.messages.append({
-                    "role": "assistant",
-                    "content": error_msg,
-                    "timestamp": datetime.now().isoformat()
-                })
+                error_message = f"Error generating response: {str(e)}"
+                yield f"data: {json.dumps({'error': error_message})}\n\n"
+        
+        return StreamingResponse(generate_response(), media_type="text/plain")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to chat with file: {str(e)}")
+
+# Define general chat endpoint
+@app.post("/api/chat")
+async def general_chat(request: GeneralChatRequest):
+    try:
+        # Get OpenAI API key
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise HTTPException(status_code=500, detail="OpenAI API key not configured")
+        
+        # Create OpenAI client
+        client = OpenAI(api_key=api_key)
+        
+        # Build system prompt with persona and domain guidance
+        system_prompt = "You are a helpful AI assistant."
+        
+        if request.persona:
+            system_prompt += f"\n\nPersona: {request.persona}"
+        
+        if request.domain:
+            system_prompt += f"\n\nDomain Context: {request.domain}"
+        
+        # Get or create chat session
+        session_id = request.session_id or str(uuid.uuid4())
+        if session_id not in chat_sessions:
+            chat_sessions[session_id] = ChatSession(
+                session_id=session_id,
+                created_at=datetime.now().isoformat(),
+                file_ids=[],
+                messages=[]
+            )
+        
+        session = chat_sessions[session_id]
+        
+        # Add user message to session
+        session.messages.append(ChatMessage(
+            role="user",
+            content=request.user_message,
+            timestamp=datetime.now().isoformat()
+        ))
+        
+        # Save session
+        save_chat_session(session)
+        
+        # Create chat completion
+        def generate_response():
+            try:
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": request.user_message}
+                    ],
+                    stream=True,
+                    temperature=0.7,
+                    max_tokens=1000
+                )
+                
+                for chunk in response:
+                    if chunk.choices[0].delta.content:
+                        yield f"data: {json.dumps({'content': chunk.choices[0].delta.content})}\n\n"
+                
+                # Add assistant response to session
+                session.messages.append(ChatMessage(
+                    role="assistant",
+                    content="[Streamed response]",
+                    timestamp=datetime.now().isoformat()
+                ))
                 save_chat_session(session)
-                yield error_msg
-
-        # Return a streaming response to the client
-        return StreamingResponse(generate(), media_type="text/plain")
-    
+                
+            except Exception as e:
+                error_message = f"Error generating response: {str(e)}"
+                yield f"data: {json.dumps({'error': error_message})}\n\n"
+        
+        return StreamingResponse(generate_response(), media_type="text/plain")
+        
     except HTTPException:
         raise
     except Exception as e:
-        # Handle any errors that occur during processing
-        raise HTTPException(status_code=500, detail=f"Chat error: {str(e)}")
-
-# Define endpoint to get chat history
-@app.get("/api/chat-history")
-async def get_chat_history():
-    try:
-        sessions = get_all_chat_sessions()
-        return ChatHistoryResponse(sessions=sessions)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get chat history: {str(e)}")
-
-# Define endpoint to get a specific chat session
-@app.get("/api/chat-history/{session_id}")
-async def get_chat_session(session_id: str):
-    try:
-        session = load_chat_session(session_id)
-        if not session:
-            raise HTTPException(status_code=404, detail="Chat session not found")
-        return session
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get chat session: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate chat response: {str(e)}")
 
 # Define file upload endpoint
 @app.post("/api/upload-file", response_model=FileUploadResponse)
@@ -733,8 +792,20 @@ async def upload_file(file: UploadFile = File(...)):
             "message": "File uploaded, indexing will start shortly..."
         }
         
-        if IS_READONLY:
-            # In read-only mode, return the file content for browser storage
+        # Determine vector store type
+        vector_store_type = "qdrant" if USE_QDRANT else "memory"
+        print(f"🔧 Vector store type for {file_id}: {vector_store_type}")
+        
+        # Store file metadata immediately for list_files endpoint
+        file_metadata[file_id] = {
+            "filename": filename,
+            "vector_store_type": vector_store_type,
+            "uploaded_at": datetime.now().isoformat()
+        }
+        print(f"💾 Stored metadata for {file_id}: filename={filename}, vector_store_type={vector_store_type}")
+        
+        if IS_READONLY and USE_BROWSER_STORAGE:
+            # In read-only mode with browser storage enabled, return the file content for browser storage
             import base64
             file_content_b64 = base64.b64encode(content).decode('utf-8')
             
@@ -744,23 +815,38 @@ async def upload_file(file: UploadFile = File(...)):
                 message=f"{get_file_type(filename).upper()} uploaded successfully (stored in browser)",
                 indexing_status="pending",
                 use_browser_storage=True,
-                file_content=file_content_b64
+                file_content=file_content_b64,
+                vector_store_type=vector_store_type
             )
         else:
-            # Save the file to disk
-            file_path = UPLOADS_DIR / f"{file_id}_{filename}"
-            with open(file_path, "wb") as buffer:
-                buffer.write(content)
+            # Save the file to disk or start indexing directly
+            if not IS_READONLY:
+                file_path = UPLOADS_DIR / f"{file_id}_{filename}"
+                with open(file_path, "wb") as buffer:
+                    buffer.write(content)
             
-            # Start indexing in the background (same as read-only mode will do client-side)
+            # Start indexing in the background
             asyncio.create_task(index_file(content, file_id, filename))
+            
+            # After updating file_metadata[file_id] on upload, persist to disk
+            file_metadata[file_id] = {
+                "filename": filename,
+                "vector_store_type": vector_store_type,
+                "uploaded_at": datetime.now().isoformat()
+            }
+            try:
+                with open(FILE_METADATA_PATH, 'w') as f:
+                    json.dump(file_metadata, f)
+            except Exception as e:
+                print(f"⚠️ Failed to save file_metadata: {e}")
             
             return FileUploadResponse(
                 filename=filename,
                 file_id=file_id,
                 message=f"{get_file_type(filename).upper()} uploaded successfully",
                 indexing_status="pending",
-                use_browser_storage=False
+                use_browser_storage=False,
+                vector_store_type=vector_store_type
             )
     
     except HTTPException:
@@ -768,79 +854,7 @@ async def upload_file(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}")
 
-# Define endpoint to list uploaded files
-@app.get("/api/files")
-async def list_files():
-    try:
-        files = []
-        
-        if IS_READONLY:
-            # In read-only mode, return files from memory with proper status
-            for file_id, content in memory_stored_files.items():
-                # Get indexing status from the centralized status tracking
-                status_info = indexing_status.get(file_id, {
-                    "status": "unknown",
-                    "message": "File in browser storage"
-                })
-                
-                files.append({
-                    "file_id": file_id,
-                    "original_filename": f"File_{file_id[:8]}.pdf",  # Fallback name
-                    "uploaded_at": datetime.now().timestamp(),
-                    "indexing_status": status_info["status"],
-                    "indexing_message": status_info["message"]
-                })
-        else:
-            # List files from disk - support multiple extensions
-            for extension in SUPPORTED_EXTENSIONS:
-                for file_path in UPLOADS_DIR.glob(f"*{extension}"):
-                    # Extract original filename from stored filename (remove UUID prefix)
-                    stored_name = file_path.name
-                    original_name = "_".join(stored_name.split("_")[1:])  # Remove UUID prefix
-                    file_id = stored_name.split("_")[0]
-                    
-                    # Get indexing status from centralized status tracking
-                    status_info = indexing_status.get(file_id, {
-                        "status": "unknown",
-                        "message": "Status unknown"
-                    })
-                    
-                    files.append({
-                        "file_id": file_id,
-                        "original_filename": original_name,
-                        "uploaded_at": file_path.stat().st_mtime,
-                        "indexing_status": status_info["status"],
-                        "indexing_message": status_info["message"]
-                    })
-        
-        return {"files": files}
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to list files: {str(e)}")
-
-# Define endpoint to get indexing status for a specific file
-@app.get("/api/files/{file_id}/status")
-async def get_file_indexing_status(file_id: str):
-    try:
-        status_info = indexing_status.get(file_id, {
-            "status": "unknown",
-            "message": "File not found"
-        })
-        
-        return FileIndexingStatus(
-            file_id=file_id,
-            status=status_info["status"],
-            message=status_info["message"]
-        )
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get indexing status: {str(e)}")
-
-# Define a health check endpoint to verify API status
-@app.get("/api/health")
-async def health_check():
-    return {"status": "ok", "readonly": IS_READONLY}
-
+# Define pre-indexed file endpoint (for browser storage mode)
 @app.post("/api/pre-indexed-file")
 async def accept_pre_indexed_file(request: PreIndexedFileRequest):
     """Accept pre-indexed file data from the frontend for browser-stored files"""
@@ -879,14 +893,14 @@ async def accept_pre_indexed_file(request: PreIndexedFileRequest):
         
         print(f"✅ Created {len(embeddings)} embeddings successfully")
         
-        # Create vector database from real embeddings
-        vector_db = VectorDatabase()
+        # Create vector database based on configuration
+        vector_db = create_vector_database(request.file_id)
         
         # Insert chunks and embeddings into vector database
         import numpy as np
         for i, (chunk, embedding) in enumerate(zip(request.chunks, embeddings)):
             try:
-                vector_db.insert(chunk, np.array(embedding))
+                vector_db.insert(chunk, np.array(embedding), metadata={"file_id": request.file_id, "filename": request.filename})
                 print(f"✅ Inserted chunk {i+1}/{len(request.chunks)} into vector database")
             except Exception as e:
                 print(f"❌ Error inserting chunk {i+1}: {str(e)}")
@@ -895,7 +909,8 @@ async def accept_pre_indexed_file(request: PreIndexedFileRequest):
         # Store the vector database in memory for quick access
         vector_databases[request.file_id] = {
             "vector_db": vector_db,
-            "chunks": request.chunks
+            "chunks": request.chunks,
+            "filename": request.filename
         }
         
         print(f"📊 Stored file {request.file_id} in vector_databases")
@@ -931,6 +946,17 @@ async def delete_file(file_id: str):
         
         # Remove from vector database
         if file_id in vector_databases:
+            vector_data = vector_databases[file_id]
+            vector_db = vector_data["vector_db"]
+            
+            # If using Qdrant, we need to delete the collection
+            if USE_QDRANT and hasattr(vector_db, 'delete_collection'):
+                try:
+                    vector_db.delete_collection()
+                    print(f"✅ Deleted Qdrant collection for file {file_id}")
+                except Exception as e:
+                    print(f"⚠️ Warning: Could not delete Qdrant collection: {str(e)}")
+            
             del vector_databases[file_id]
             deleted = True
         
@@ -972,50 +998,123 @@ async def delete_file(file_id: str):
             raise HTTPException(status_code=404, detail="File not found")
             
     except Exception as e:
-        logger.error(f"Error deleting file {file_id}: {str(e)}")
+        print(f"Error deleting file {file_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to delete file: {str(e)}")
 
-# Define a test endpoint for PDF processing
-@app.post("/api/test-pdf-processing")
+# Define delete all files endpoint
+@app.delete("/api/files")
+async def delete_all_files():
+    """Delete all files from memory and vector database"""
+    try:
+        deleted_count = 0
+        
+        # Get all file IDs
+        file_ids = list(vector_databases.keys())
+        
+        for file_id in file_ids:
+            try:
+                # Remove from vector database
+                if file_id in vector_databases:
+                    vector_data = vector_databases[file_id]
+                    vector_db = vector_data["vector_db"]
+                    
+                    # If using Qdrant, we need to delete the collection
+                    if USE_QDRANT and hasattr(vector_db, 'delete_collection'):
+                        try:
+                            vector_db.delete_collection()
+                            print(f"✅ Deleted Qdrant collection for file {file_id}")
+                        except Exception as e:
+                            print(f"⚠️ Warning: Could not delete Qdrant collection: {str(e)}")
+                    
+                    del vector_databases[file_id]
+                
+                # Remove from indexing status
+                if file_id in indexing_status:
+                    del indexing_status[file_id]
+                
+                # Remove from memory stored files (read-only mode)
+                if file_id in memory_stored_files:
+                    del memory_stored_files[file_id]
+                
+                deleted_count += 1
+                
+            except Exception as e:
+                print(f"Warning: Failed to delete file {file_id}: {e}")
+        
+        # Clear all chat sessions
+        chat_sessions.clear()
+        
+        # Remove from disk (non-read-only mode)
+        if not IS_READONLY:
+            try:
+                for file_path in UPLOADS_DIR.glob("*"):
+                    file_path.unlink()
+            except Exception as e:
+                print(f"Warning: Failed to delete files from disk: {e}")
+        
+        return {"message": f"Deleted {deleted_count} files successfully"}
+        
+    except Exception as e:
+        print(f"Error deleting all files: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete all files: {str(e)}")
+
+# Test endpoint for PDF processing
+@app.post("/api/test-pdf")
 async def test_pdf_processing(file: UploadFile = File(...)):
-    """Test endpoint to verify PDF processing is working"""
+    """Test endpoint for PDF processing"""
     try:
         content = await file.read()
         file_id = str(uuid.uuid4())
         filename = file.filename
         
-        print(f"🧪 Testing PDF processing for: {filename}")
-        
-        # Test the same PDF processing logic
-        temp_file_path = f"/tmp/test_{file_id}_{filename}"
+        # Create temp file
+        temp_file_path = f"/tmp/{file_id}_{filename}"
         with open(temp_file_path, 'wb') as f:
             f.write(content)
         
+        # Test PDF processing
         documents = []
         
-        # Try PDFLoader
+        # Method 1: Try PDFLoader
         try:
             pdf_loader = PDFLoader(temp_file_path)
             documents = pdf_loader.load_documents()
-            print(f"✅ PDFLoader test: {len(documents)} documents")
+            method = "PDFLoader"
         except Exception as e:
-            print(f"❌ PDFLoader test failed: {str(e)}")
+            print(f"PDFLoader failed: {str(e)}")
+            
+            # Method 2: Try PyPDF2
+            try:
+                import PyPDF2
+                with open(temp_file_path, 'rb') as file:
+                    pdf_reader = PyPDF2.PdfReader(file)
+                    documents = []
+                    for page_num in range(len(pdf_reader.pages)):
+                        page = pdf_reader.pages[page_num]
+                        text = page.extract_text()
+                        if text.strip():
+                            documents.append(text)
+                method = "PyPDF2"
+            except Exception as e2:
+                print(f"PyPDF2 failed: {str(e2)}")
+                
+                # Method 3: Basic extraction
+                try:
+                    import PyPDF2
+                    with open(temp_file_path, 'rb') as file:
+                        pdf_reader = PyPDF2.PdfReader(file)
+                        documents = []
+                        for page in pdf_reader.pages:
+                            text = page.extract_text()
+                            if text.strip():
+                                documents.append(text)
+                    method = "Basic extraction"
+                except Exception as e3:
+                    print(f"Basic extraction failed: {str(e3)}")
+                    documents = []
+                    method = "Failed"
         
-        # Try PyPDF2
-        try:
-            import PyPDF2
-            with open(temp_file_path, 'rb') as file:
-                pdf_reader = PyPDF2.PdfReader(file)
-                pypdf2_docs = []
-                for i, page in enumerate(pdf_reader.pages):
-                    text = page.extract_text()
-                    if text.strip():
-                        pypdf2_docs.append(f"Page {i+1}: {text.strip()}")
-            print(f"✅ PyPDF2 test: {len(pypdf2_docs)} pages")
-        except Exception as e:
-            print(f"❌ PyPDF2 test failed: {str(e)}")
-        
-        # Clean up
+        # Clean up temp file
         try:
             os.remove(temp_file_path)
         except:
@@ -1024,15 +1123,15 @@ async def test_pdf_processing(file: UploadFile = File(...)):
         return {
             "filename": filename,
             "file_size": len(content),
-            "pdf_loader_documents": len(documents),
-            "pypdf2_pages": len(pypdf2_docs) if 'pypdf2_docs' in locals() else 0
+            "extraction_method": method,
+            "pages_extracted": len(documents),
+            "total_text_length": sum(len(doc) for doc in documents),
+            "sample_text": documents[0][:200] + "..." if documents else "No text extracted"
         }
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"PDF processing test failed: {str(e)}")
 
-# Entry point for running the application directly
 if __name__ == "__main__":
     import uvicorn
-    # Start the server on all network interfaces (0.0.0.0) on port 8000
     uvicorn.run(app, host="0.0.0.0", port=8000)

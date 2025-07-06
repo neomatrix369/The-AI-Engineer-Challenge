@@ -328,7 +328,7 @@ export default function Chat({ fileListVersion = 0 }: ChatProps) {
   const getSelectedFileTypes = (): string[] => {
     const fileTypes = selectedFiles.map(fileId => {
       const file = files.find(f => f.file_id === fileId);
-      return file ? getFileType(file.original_filename) : 'unknown';
+      return file ? getFileType(file.filename) : 'unknown';
     });
     return Array.from(new Set(fileTypes)).filter(type => type !== 'unknown');
   };
@@ -341,8 +341,8 @@ export default function Chat({ fileListVersion = 0 }: ChatProps) {
 
   const loadFiles = async () => {
     try {
-      const response = await api.listFiles();
-      setFiles(response.files);
+      const files = await api.listFiles();
+      setFiles(files);
     } catch (error) {
       console.error('Failed to load files:', error);
       setError('Failed to load files');
@@ -513,7 +513,7 @@ export default function Chat({ fileListVersion = 0 }: ChatProps) {
   const getSelectedFileNames = () => {
     return selectedFiles.map(fileId => {
       const file = files.find(f => f.file_id === fileId);
-      return file ? file.original_filename : fileId;
+      return file ? file.filename : fileId;
     });
   };
 
@@ -521,10 +521,7 @@ export default function Chat({ fileListVersion = 0 }: ChatProps) {
     return new Date(timestamp).toLocaleString();
   };
 
-  const readyFiles = files.filter(file => {
-    // Only include files that are fully indexed and ready for chat
-    return file.indexing_status === 'completed';
-  });
+  const readyFiles = Array.isArray(files) ? files.filter(file => file.indexing_status === 'completed') : [];
 
   return (
     <div className="flex flex-col h-[80vh] max-w-4xl mx-auto p-4">
@@ -695,7 +692,7 @@ export default function Chat({ fileListVersion = 0 }: ChatProps) {
                         onChange={(e) => handleFileSelection(file.file_id, e.target.checked)}
                         className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                       />
-                      <span className="text-sm text-gray-700">{file.original_filename}</span>
+                      <span className="text-sm text-gray-700">{file.filename}</span>
                     </label>
                   ))}
                 </div>

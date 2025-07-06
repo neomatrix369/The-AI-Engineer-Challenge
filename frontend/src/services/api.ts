@@ -26,21 +26,22 @@ interface ChatHistoryResponse {
   sessions: ChatSession[];
 }
 
-interface FileUploadResponse {
+export interface FileUploadResponse {
   filename: string;
   file_id: string;
   message: string;
   indexing_status: string;
   use_browser_storage: boolean;
   file_content?: string; // Base64 encoded file content for browser storage
+  vector_store_type: string; // "memory", "qdrant", or "browser"
 }
 
 export interface FileInfo {
   file_id: string;
-  original_filename: string;
-  uploaded_at: number;
+  filename: string;
   indexing_status: string;
-  indexing_message: string;
+  message: string;
+  vector_store_type: string;
 }
 
 interface FileListResponse {
@@ -64,6 +65,11 @@ interface PreIndexedFileRequest {
   chunks: string[];
 }
 
+interface GeneralChatRequest {
+  user_message: string;
+  model?: string;
+}
+
 const FALLBACK_API_URL = 'http://localhost:8000';
 if (! process.env.NEXT_PUBLIC_API_URL) {
   console.warn('NEXT_PUBLIC_API_URL is not set, falling back to ' + FALLBACK_API_URL);
@@ -75,7 +81,7 @@ console.log('FinalAPI_BASE_URL:', API_BASE_URL);
 // Browser storage utilities
 const BROWSER_STORAGE_KEY = 'file_chat_files';
 
-const getBrowserStoredFiles = (): Record<string, { filename: string; content: string; uploaded_at: number }> => {
+export const getBrowserStoredFiles = (): Record<string, { filename: string; content?: string; uploaded_at: number; vector_store_type?: string }> => {
   try {
     const stored = localStorage.getItem(BROWSER_STORAGE_KEY);
     return stored ? JSON.parse(stored) : {};
@@ -85,7 +91,7 @@ const getBrowserStoredFiles = (): Record<string, { filename: string; content: st
   }
 };
 
-const setBrowserStoredFiles = (files: Record<string, { filename: string; content: string; uploaded_at: number }>) => {
+export const setBrowserStoredFiles = (files: Record<string, { filename: string; content?: string; uploaded_at: number; vector_store_type?: string }>) => {
   try {
     localStorage.setItem(BROWSER_STORAGE_KEY, JSON.stringify(files));
   } catch (error) {
@@ -109,8 +115,138 @@ const removeBrowserStoredFile = (fileId: string) => {
   setBrowserStoredFiles(files);
 };
 
+export interface HealthCheckResponse {
+  status: string;
+  readonly: boolean;
+  environment: string;
+  vector_store: string;
+  browser_storage: boolean;
+  features: {
+    qdrant: boolean;
+    browser_storage: boolean;
+    readonly: boolean;
+  };
+}
+
+// Browser storage utilities
+class BrowserStorage {
+  private readonly STORAGE_KEY = 'uploaded_files';
+  private readonly INDEXING_STATUS_KEY = 'indexing_status';
+
+  // Store file in browser storage
+  storeFile(fileId: string, filename: string, base64Content: string): void {
+    try {
+      const files = this.getStoredFiles();
+      files[fileId] = {
+        filename,
+        content: base64Content,
+        stored_at: new Date().toISOString()
+      };
+      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(files));
+      console.log(`📁 Stored file in browser: ${filename} (${fileId})`);
+    } catch (error) {
+      console.error('Error storing file in browser:', error);
+    }
+  }
+
+  // Get file from browser storage
+  getFile(fileId: string): { filename: string; content: string; stored_at: string } | null {
+    try {
+      const files = this.getStoredFiles();
+      return files[fileId] || null;
+    } catch (error) {
+      console.error('Error getting file from browser:', error);
+      return null;
+    }
+  }
+
+  // Get all stored files
+  getStoredFiles(): Record<string, { filename: string; content: string; stored_at: string }> {
+    try {
+      const stored = localStorage.getItem(this.STORAGE_KEY);
+      return stored ? JSON.parse(stored) : {};
+    } catch (error) {
+      console.error('Error getting stored files:', error);
+      return {};
+    }
+  }
+
+  // Remove file from browser storage
+  removeFile(fileId: string): void {
+    try {
+      const files = this.getStoredFiles();
+      delete files[fileId];
+      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(files));
+      console.log(`🗑️ Removed file from browser: ${fileId}`);
+    } catch (error) {
+      console.error('Error removing file from browser:', error);
+    }
+  }
+
+  // Clear all stored files
+  clearAllFiles(): void {
+    try {
+      localStorage.removeItem(this.STORAGE_KEY);
+      localStorage.removeItem(this.INDEXING_STATUS_KEY);
+      console.log('🗑️ Cleared all browser storage');
+    } catch (error) {
+      console.error('Error clearing browser storage:', error);
+    }
+  }
+
+  // Store indexing status locally
+  storeIndexingStatus(fileId: string, status: any): void {
+    try {
+      const statuses = this.getIndexingStatuses();
+      statuses[fileId] = status;
+      localStorage.setItem(this.INDEXING_STATUS_KEY, JSON.stringify(statuses));
+    } catch (error) {
+      console.error('Error storing indexing status:', error);
+    }
+  }
+
+  // Get indexing status locally
+  getIndexingStatus(fileId: string): any {
+    try {
+      const statuses = this.getIndexingStatuses();
+      return statuses[fileId] || null;
+    } catch (error) {
+      console.error('Error getting indexing status:', error);
+      return null;
+    }
+  }
+
+  // Get all indexing statuses
+  getIndexingStatuses(): Record<string, any> {
+    try {
+      const stored = localStorage.getItem(this.INDEXING_STATUS_KEY);
+      return stored ? JSON.parse(stored) : {};
+    } catch (error) {
+      console.error('Error getting indexing statuses:', error);
+      return {};
+    }
+  }
+
+  // Remove indexing status
+  removeIndexingStatus(fileId: string): void {
+    try {
+      const statuses = this.getIndexingStatuses();
+      delete statuses[fileId];
+      localStorage.setItem(this.INDEXING_STATUS_KEY, JSON.stringify(statuses));
+    } catch (error) {
+      console.error('Error removing indexing status:', error);
+    }
+  }
+}
+
+// Create browser storage instance
+const browserStorage = new BrowserStorage();
+
+// Local indexing status tracking
+const localIndexingStatus = new Map<string, any>();
+
 export const api = {
-  async chat(request: ChatRequest): Promise<ReadableStream> {
+  async chat(request: ChatRequest): Promise<ReadableStream<any>> {
     const response = await fetch(`${API_BASE_URL}/api/chat`, {
       method: 'POST',
       headers: {
@@ -120,13 +256,18 @@ export const api = {
     });
 
     if (!response.ok) {
-      throw new Error('Failed to get chat response');
+      const errorText = await response.text();
+      throw new Error(`Chat failed: ${errorText}`);
     }
 
-    return response.body as ReadableStream;
+    if (!response.body) {
+      throw new Error('No response body');
+    }
+
+    return response.body;
   },
 
-  async chatWithFile(request: FileChatRequest): Promise<ReadableStream> {
+  async chatWithFile(request: FileChatRequest): Promise<ReadableStream<any>> {
     const response = await fetch(`${API_BASE_URL}/api/chat-file`, {
       method: 'POST',
       headers: {
@@ -137,29 +278,29 @@ export const api = {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Failed to chat with file: ${errorText}`);
+      throw new Error(`Chat failed: ${errorText}`);
     }
 
-    return response.body as ReadableStream;
+    if (!response.body) {
+      throw new Error('No response body');
+    }
+
+    return response.body;
   },
 
   async getChatHistory(): Promise<ChatHistoryResponse> {
     const response = await fetch(`${API_BASE_URL}/api/chat-history`);
-    
     if (!response.ok) {
-      throw new Error('Failed to get chat history');
+      throw new Error(`Failed to get chat history: ${response.statusText}`);
     }
-
     return response.json();
   },
 
   async getChatSession(sessionId: string): Promise<ChatSession> {
     const response = await fetch(`${API_BASE_URL}/api/chat-history/${sessionId}`);
-    
     if (!response.ok) {
-      throw new Error('Failed to get chat session');
+      throw new Error(`Failed to get chat session: ${response.statusText}`);
     }
-
     return response.json();
   },
 
@@ -174,35 +315,32 @@ export const api = {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Failed to upload file: ${errorText}`);
+      throw new Error(`Upload failed: ${errorText}`);
     }
 
     const result = await response.json();
-
-    // If the backend indicates we should use browser storage, store the file locally
+    
+    // If browser storage is enabled and file content is provided, store it
     if (result.use_browser_storage && result.file_content) {
-      addBrowserStoredFile(result.file_id, result.filename, result.file_content);
-      
-      // Set initial local status to match backend
-      this.updateLocalIndexingStatus(result.file_id, {
-        file_id: result.file_id,
-        status: result.indexing_status,
-        message: 'File uploaded, processing will start shortly...'
-      });
-      
-      // Trigger client-side indexing for browser-stored files
-      this.indexBrowserStoredFile(result.file_id, result.filename, result.file_content);
-    } else {
-      // For non-read-only mode, the backend handles indexing
-      // We can still track status locally for consistency
-      this.updateLocalIndexingStatus(result.file_id, {
-        file_id: result.file_id,
-        status: result.indexing_status,
-        message: 'File uploaded, indexing will start shortly...'
-      });
+      browserStorage.storeFile(result.file_id, result.filename, result.file_content);
     }
 
     return result;
+  },
+
+  async deleteAllFiles(): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/api/files`, {
+      method: 'DELETE',
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Delete all failed: ${errorText}`);
+    }
+
+    // Also clear browser storage
+    browserStorage.clearAllFiles();
+    localIndexingStatus.clear();
   },
 
   async indexBrowserStoredFile(fileId: string, filename: string, base64Content: string): Promise<void> {
@@ -252,7 +390,7 @@ export const api = {
       this.updateLocalIndexingStatus(fileId, completedStatus);
       
     } catch (error) {
-      console.error('❌ Error indexing browser-stored file:', error);
+      console.error('Error indexing browser stored file:', error);
       
       // Update status to failed
       const failedStatus = {
@@ -262,79 +400,38 @@ export const api = {
       };
       this.updateLocalIndexingStatus(fileId, failedStatus);
       
-      // Don't throw here as this is called asynchronously
+      throw error;
     }
   },
 
-  // Local status tracking for browser-stored files
-  localIndexingStatus: {} as Record<string, FileIndexingStatus>,
-
   updateLocalIndexingStatus(fileId: string, status: FileIndexingStatus): void {
-    this.localIndexingStatus[fileId] = status;
+    localIndexingStatus.set(fileId, status);
+    browserStorage.storeIndexingStatus(fileId, status);
   },
 
   getLocalIndexingStatus(fileId: string): FileIndexingStatus | null {
-    return this.localIndexingStatus[fileId] || null;
+    return localIndexingStatus.get(fileId) || null;
   },
 
-  async listFiles(): Promise<FileListResponse> {
+  async listFiles(): Promise<FileInfo[]> {
     const response = await fetch(`${API_BASE_URL}/api/files`);
-    
     if (!response.ok) {
-      throw new Error('Failed to list files');
+      throw new Error(`Failed to list files: ${response.statusText}`);
     }
-
+    
     const result = await response.json();
-
-    // If we're in read-only mode, also include browser-stored files that aren't on the server
-    const healthResponse = await this.healthCheck();
-    if (healthResponse.readonly) {
-      const browserFiles = getBrowserStoredFiles();
-      const browserFilesList: Array<FileInfo> = [];
-      
-      for (const [fileId, fileData] of Object.entries(browserFiles)) {
-        // Check if this file is already in the server response
-        const serverFile = result.files.find((f: FileInfo) => f.file_id === fileId);
-        
-        if (!serverFile) {
-          // File not on server, add it with local status
-          const localStatus = this.getLocalIndexingStatus(fileId);
-          let indexingStatus = 'unknown';
-          let indexingMessage = 'Stored in browser';
-          
-          if (localStatus) {
-            indexingStatus = localStatus.status;
-            indexingMessage = localStatus.message;
-          }
-          
-          browserFilesList.push({
-            file_id: fileId,
-            original_filename: fileData.filename,
-            uploaded_at: fileData.uploaded_at / 1000, // Convert to Unix timestamp
-            indexing_status: indexingStatus,
-            indexing_message: indexingMessage
-          });
-        }
-      }
-
-      // Add browser files that aren't on server
-      result.files = [...result.files, ...browserFilesList];
-    }
-
-    return result;
+    return result.files;
   },
 
   async getFileIndexingStatus(fileId: string): Promise<FileIndexingStatus> {
     const response = await fetch(`${API_BASE_URL}/api/files/${fileId}/status`);
-    
     if (!response.ok) {
-      throw new Error('Failed to get file indexing status');
+      throw new Error(`Failed to get file status: ${response.statusText}`);
     }
-
     return response.json();
   },
 
-  async healthCheck(): Promise<HealthResponse> {
+  async healthCheck(): Promise<HealthCheckResponse> {
     const response = await fetch(`${API_BASE_URL}/api/health`);
     if (!response.ok) {
       throw new Error('Health check failed');
@@ -363,7 +460,11 @@ export const api = {
         }
         
         // Index the file
-        await this.indexBrowserStoredFile(fileId, fileData.filename, fileData.content);
+        if (fileData.content) {
+          await this.indexBrowserStoredFile(fileId, fileData.filename, fileData.content);
+        } else {
+          console.warn(`⚠️ No content found for file ${fileId}, skipping indexing`);
+        }
       }
     } catch (error) {
       console.error('Error indexing existing browser-stored files:', error);
@@ -400,5 +501,63 @@ export const api = {
       removeBrowserStoredFile(fileId);
       return { message: `File ${fileId} deleted from browser storage` };
     }
+  },
+
+  getBrowserStorage(): BrowserStorage {
+    return browserStorage;
+  },
+
+  async testPdfProcessing(file: File): Promise<any> {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch(`${API_BASE_URL}/api/test-pdf-processing`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`PDF processing test failed: ${errorText}`);
+    }
+
+    return response.json();
+  },
+
+  logStorageInfo(): void {
+    console.log('📊 Storage Information:');
+    console.log('Browser Storage Files:', browserStorage.getStoredFiles());
+    console.log('Local Indexing Status:', Array.from(localIndexingStatus.entries()));
+    console.log('Browser Stored Files (legacy):', getBrowserStoredFiles());
+  },
+
+  isFileStored(fileId: string): boolean {
+    return browserStorage.getFile(fileId) !== null;
+  },
+
+  clearAllStoredFiles(): void {
+    browserStorage.clearAllFiles();
+    localIndexingStatus.clear();
+  },
+
+  async generalChat(request: GeneralChatRequest): Promise<ReadableStream<any>> {
+    const response = await fetch(`${API_BASE_URL}/api/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Chat failed: ${errorText}`);
+    }
+
+    if (!response.body) {
+      throw new Error('No response body');
+    }
+
+    return response.body;
   },
 };

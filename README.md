@@ -237,89 +237,276 @@ The application will be available at `http://localhost:3000` and will connect to
 
 For more details on each feature and development workflow, see the `MERGE.md` and `docs/PLAN.md` files.
 
-# The AI Engineer Challenge
+# 🚀 Multi-Format RAG Chat Application
 
-A modern RAG (Retrieval-Augmented Generation) chat application that supports multiple file formats including PDF, Markdown, Text, and CSV files.
+A powerful Retrieval-Augmented Generation (RAG) chat application that supports multiple file formats including PDF, CSV, JSON, Markdown, and text files. Built with Next.js, FastAPI, and OpenAI, featuring **Qdrant vector database** for production-ready document storage and retrieval.
 
-## Features
+## ✨ Features
 
-- **Multi-Format Support**: Upload and chat with PDF, Markdown, Text, CSV, and JSON files
-- **Advanced RAG**: Enhanced retrieval with chat history and multi-file support
-- **Modern UI**: Clean, responsive interface built with Next.js and Tailwind CSS
-- **Real-time Chat**: Stream responses with typing indicators
-- **File Management**: Upload, index, and manage multiple files
-- **Chat History**: Persistent chat sessions with file context
-- **Browser Storage**: Works in read-only environments (like Vercel) with client-side processing
+### 🔧 **Multi-Format Support**
+- **PDF**: Advanced text extraction with multiple fallback methods
+- **CSV**: Structured data processing with column headers
+- **JSON**: Hierarchical object flattening and processing
+- **Markdown**: Direct text processing with formatting preserved
+- **Text**: Simple text file processing
 
-### Domain-Specific Considerations:
+### 🗄️ **Flexible Storage Options**
+- **Qdrant Vector Database**: Production-ready, persistent storage
+- **In-Memory Storage**: Fast development and testing
+- **Browser Storage**: Read-only environment support (Vercel)
 
-✅ Developer Workflow: JSON/CSV support for API responses and data analysis
-✅ Business Intelligence: PDF support for reports and documentation
-✅ Data Analysis: CSV processing with structured data handling
-✅ Documentation: Markdown support for technical docs
-✅ Research: Multi-format support for various research data types (including the .txt file-format for text files)
-✅ User Personas: Role-specific guidance for different user types (Researcher, Business, Student, Analyst, Manager, Developer, Architect, Writer)
+### 🎛️ **Smart Feature Flags**
+- Environment detection (local vs Vercel)
+- Configurable vector store selection
+- Automatic fallback mechanisms
+- No data loss during migrations
 
-## Tech Stack
+### 🤖 **Advanced RAG Capabilities**
+- Semantic search across multiple files
+- Chat history with context preservation
+- Domain-specific and persona-based guidance
+- Real-time streaming responses
 
-### Frontend
-- **Next.js 14** with App Router
-- **TypeScript** for type safety
-- **Tailwind CSS** for styling
-- **Multi-format file processing** for PDF, CSV, JSON, and text files
-- **Browser localStorage** for file storage in read-only environments
-- **User persona guidance** with role-specific tips and examples
+## 🏗️ Architecture
 
-### Backend
-- **FastAPI** with async support
-- **OpenAI API** for embeddings and chat
-- **Custom aimakerspace library** for AI utilities
-- **Vector database** for semantic search
-- **Multi-format file processing** for PDF, Markdown, Text, CSV, and JSON files
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Frontend      │    │   Backend       │    │   Vector Store  │
+│   (Next.js)     │◄──►│   (FastAPI)     │◄──►│   (Qdrant)      │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         │                       │                       │
+         ▼                       ▼                       ▼
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│ Browser Storage │    │ OpenAI API      │    │ In-Memory       │
+│ (Fallback)      │    │ (Embeddings)    │    │ (Development)   │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+```
 
-## Quick Start
+## 🚀 Quick Start
 
-### Backend Setup
+### Prerequisites
+- Node.js 18+ and Python 3.8+
+- OpenAI API key
+- Qdrant cluster (optional, for production)
+
+### 1. Clone and Setup
+```bash
+git clone <your-repo>
+cd The-AI-Engineer-Challenge
+```
+
+### 2. Backend Setup
 ```bash
 cd api
 pip install -r requirements.txt
-PYTHONPATH=. uvicorn app:app --reload --host 0.0.0.0 --port 8000
+
+# Create environment file
+cp env.example .env
+# Edit .env with your OpenAI API key
 ```
 
-### Frontend Setup
+### 3. Frontend Setup
 ```bash
 cd frontend
 npm install
+
+# Create environment file
+cp .env.example .env.local
+# Edit .env.local with your API URL
+```
+
+### 4. Start Development
+```bash
+# Terminal 1: Backend
+cd api
+uvicorn app:app --reload --host 0.0.0.0 --port 8000
+
+# Terminal 2: Frontend
+cd frontend
 npm run dev
 ```
 
-## File Format Support
+## 🌍 Environment Configuration
 
-- **PDF**: Full text extraction and semantic indexing with PDF.js
-- **Markdown (.md)**: Direct text processing with formatting preserved
-- **Text (.txt)**: Simple text file processing with UTF-8 encoding
-- **CSV**: Structured data processing with column headers and row analysis
-- **JSON**: Structured data processing with hierarchical object flattening
+### Local Development
+```bash
+# Backend (.env)
+OPENAI_API_KEY=your-openai-api-key
+QDRANT_URL=http://localhost:6333
+QDRANT_API_KEY=your-qdrant-api-key
+USE_QDRANT=true
+USE_BROWSER_STORAGE=false
 
-## User Personas & Guidance
+# Frontend (.env.local)
+NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_USE_QDRANT=true
+NEXT_PUBLIC_USE_BROWSER_STORAGE=false
+NEXT_PUBLIC_VERCEL=false
+```
 
-The application provides role-specific guidance for different user types:
+### Vercel Deployment
+```bash
+# Backend Environment Variables
+OPENAI_API_KEY=your-openai-api-key
+QDRANT_URL=https://your-cluster.qdrant.io
+QDRANT_API_KEY=your-qdrant-api-key
+USE_QDRANT=true
+USE_BROWSER_STORAGE=false
 
-- **PDF Files**: Researcher, Business User, Student
-- **CSV Files**: Analyst, Manager, Developer
-- **JSON Files**: Developer, Architect, Analyst
-- **Text Files**: Writer, Developer, Student
+# Frontend Environment Variables
+NEXT_PUBLIC_API_URL=https://your-app.vercel.app
+NEXT_PUBLIC_USE_QDRANT=true
+NEXT_PUBLIC_USE_BROWSER_STORAGE=false
+NEXT_PUBLIC_VERCEL=true
+```
 
-Each persona includes contextual tips and example questions tailored to their specific use case.
+## 🔄 Feature Flag Behavior
 
-## Architecture
+| Environment | USE_QDRANT | USE_BROWSER_STORAGE | Vector Store | Behavior |
+|-------------|------------|---------------------|--------------|----------|
+| Local | `false` | `true` | Memory | In-memory storage |
+| Local | `true` | `false` | Qdrant | Qdrant vector database |
+| Vercel | `false` | `true` | Browser | Browser storage + memory |
+| Vercel | `true` | `false` | Qdrant | Qdrant vector database |
 
-The application uses a hybrid approach:
-- **Server-side processing** for full environments
-- **Client-side processing** with browser storage for read-only environments
-- **Real-time streaming** for responsive chat experience
-- **Session management** for persistent conversations
+## 📊 Storage Comparison
 
-## Development
+| Feature | Qdrant | In-Memory | Browser Storage |
+|---------|--------|-----------|-----------------|
+| Persistence | ✅ Yes | ❌ No | ✅ Yes |
+| Scalability | ✅ High | ❌ Low | ❌ Low |
+| Performance | ✅ Fast | ✅ Fast | ⚠️ Medium |
+| Cost | 💰 Paid | 🆓 Free | 🆓 Free |
+| Setup | 🔧 Complex | 🎯 Simple | 🎯 Simple |
 
-The project follows a modular architecture with clear separation between frontend and backend components. The `aimakerspace` library provides custom AI utilities for enhanced functionality.
+## 🔧 Qdrant Setup
+
+### Option 1: Qdrant Cloud (Recommended)
+1. Sign up at [Qdrant Cloud](https://cloud.qdrant.io/)
+2. Create a cluster and get your credentials
+3. Configure environment variables
+
+### Option 2: Self-hosted
+```bash
+# Using Docker
+docker run -p 6333:6333 qdrant/qdrant
+
+# Or using Docker Compose
+docker-compose up -d
+```
+
+## 🛠️ API Endpoints
+
+### Core Endpoints
+- `POST /api/upload-file` - Upload and index files
+- `POST /api/chat-file` - Chat with indexed files
+- `POST /api/chat` - General chat without file context
+- `GET /api/files` - List uploaded files
+- `GET /api/health` - Health check with feature flags
+
+### File Management
+- `GET /api/files/{file_id}/status` - Get file indexing status
+- `DELETE /api/files/{file_id}` - Delete specific file
+- `DELETE /api/files` - Delete all files
+
+### Browser Storage
+- `POST /api/pre-indexed-file` - Accept pre-indexed file data
+
+## 🔍 Monitoring
+
+### Health Check
+```bash
+curl https://your-app.vercel.app/api/health
+```
+
+Expected response:
+```json
+{
+  "status": "ok",
+  "readonly": true,
+  "environment": "vercel",
+  "vector_store": "qdrant",
+  "browser_storage": false,
+  "features": {
+    "qdrant": true,
+    "browser_storage": false,
+    "readonly": true
+  }
+}
+```
+
+## 🚨 Troubleshooting
+
+### Common Issues
+
+1. **"Cannot read properties of undefined"**
+   - ✅ Fixed: Added safety checks for files array
+   - Ensure proper initialization of state
+
+2. **Qdrant Connection Failed**
+   - Check `QDRANT_URL` and `QDRANT_API_KEY`
+   - Verify network connectivity
+   - Check Qdrant cluster status
+
+3. **Feature Flag Conflicts**
+   - Ensure consistent environment variables
+   - Check frontend/backend configuration
+   - Verify environment detection
+
+## 📈 Performance Tips
+
+### Qdrant Optimizations
+- Use batch operations for multiple documents
+- Implement proper indexing for fast searches
+- Monitor collection statistics via dashboard
+- Scale cluster as needed
+
+### Memory Management
+- Reduced memory footprint with persistent storage
+- Better garbage collection with external database
+- Scalable architecture for large datasets
+
+## 🔐 Security
+
+### API Key Management
+- Use environment variables for all keys
+- Implement key rotation procedures
+- Use least privilege access
+
+### Data Privacy
+- Qdrant stores document chunks and embeddings
+- Implement data retention policies
+- Consider data deletion procedures
+
+## 📚 Documentation
+
+- [`docs/QDRANT_SETUP.md`](docs/QDRANT_SETUP.md) - Detailed Qdrant setup guide
+- [`docs/QDRANT_IMPLEMENTATION.md`](docs/QDRANT_IMPLEMENTATION.md) - Implementation details
+- [`api/env.example`](api/env.example) - Environment variable examples
+- [`frontend/src/config/features.ts`](frontend/src/config/features.ts) - Feature flag documentation
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🎯 Roadmap
+
+- [ ] Advanced PDF processing with OCR
+- [ ] Multi-language support
+- [ ] Real-time collaboration
+- [ ] Advanced analytics dashboard
+- [ ] Mobile app support
+- [ ] Enterprise features
+
+---
+
+**Built with ❤️ using Next.js, FastAPI, OpenAI, and Qdrant**
