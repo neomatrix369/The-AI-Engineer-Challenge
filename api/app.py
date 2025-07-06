@@ -113,12 +113,9 @@ def is_local_environment():
     """Check if we're running locally"""
     return not is_vercel_environment()
 
-# Auto-detect Qdrant for Vercel environments if not explicitly set
+# Auto-detect Qdrant for Vercel environments
 if is_vercel_environment() and os.getenv("USE_QDRANT") is None:
-    # If we're in Vercel and USE_QDRANT is not explicitly set, 
-    # check if Qdrant credentials are available
     if os.getenv("QDRANT_URL") and os.getenv("QDRANT_API_KEY"):
-        logger.info("🚀 Auto-detecting Qdrant for Vercel environment")
         USE_QDRANT = True
         logger.info(f"   - Auto-enabled USE_QDRANT: {USE_QDRANT}")
     else:
@@ -234,14 +231,7 @@ def create_vector_database(file_id: str = None):
     logger.info(f"   - QDRANT_API_KEY: {'Set' if os.getenv('QDRANT_API_KEY') else 'Not set'}")
     
     if USE_QDRANT:
-        try:
-            collection_name = f"documents_{file_id}" if file_id else "documents"
-            logger.info(f"🚀 Creating Qdrant vector database with collection: {collection_name}")
-            return QdrantVectorDatabase(collection_name=collection_name)
-        except Exception as e:
-            logger.warning(f"⚠️ Qdrant initialization failed: {str(e)}")
-            logger.warning("⚠️ Falling back to in-memory vector database")
-            return VectorDatabase()
+        return QdrantVectorDatabase(collection_name=f"documents_{file_id}")
     else:
         logger.info(f"💾 Creating in-memory vector database")
         return VectorDatabase()
@@ -980,7 +970,7 @@ async def upload_file(file: UploadFile = File(...)):
         }
         logger.info(f"💾 Stored metadata for {file_id}: filename={filename}, vector_store_type={vector_store_type}")
         
-        if IS_READONLY and USE_BROWSER_STORAGE:
+        if (IS_READONLY and USE_BROWSER_STORAGE) or is_vercel_environment():
             # In read-only mode with browser storage enabled, return the file content for browser storage
             import base64
             file_content_b64 = base64.b64encode(content).decode('utf-8')
@@ -990,6 +980,7 @@ async def upload_file(file: UploadFile = File(...)):
             logger.info(f"   - Base64 content length: {len(file_content_b64)} chars")
             logger.info(f"   - Browser storage enabled: {USE_BROWSER_STORAGE}")
             logger.info(f"   - Read-only mode: {IS_READONLY}")
+            logger.info(f"   - Vercel environment: {is_vercel_environment()}")
             
             return FileUploadResponse(
                 filename=filename,
@@ -1109,7 +1100,7 @@ async def accept_pre_indexed_file(request: PreIndexedFileRequest):
                     # Check if the vector database supports metadata by checking its type
                     if isinstance(vector_db, QdrantVectorDatabase):
                         # QdrantVectorDatabase supports metadata
-                        vector_db.insert(chunk, np.array(embedding), metadata={"file_id": request.file_id, "filename": request.filename})
+                    vector_db.insert(chunk, np.array(embedding), metadata={"file_id": request.file_id, "filename": request.filename})
                     else:
                         # In-memory VectorDatabase doesn't support metadata
                         vector_db.insert(chunk, np.array(embedding))

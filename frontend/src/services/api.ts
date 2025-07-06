@@ -455,7 +455,8 @@ export const api = {
           filename: fileData.filename,
           hasContent: !!fileData.content,
           contentLength: fileData.content?.length || 0,
-          uploadedAt: fileData.uploaded_at
+          uploadedAt: fileData.uploaded_at,
+          contentPreview: fileData.content?.substring(0, 100) || 'No content'
         });
         
         // Check if this file is already indexed on the backend

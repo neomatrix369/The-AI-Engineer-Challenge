@@ -187,6 +187,8 @@ export default function FileUpload({ onFileListChange }: FileUploadProps) {
       
       const response = await api.uploadFile(file);
       console.log('📤 Upload response:', response);
+      console.log('📤 File content present:', !!response.file_content);
+      console.log('📤 File content length:', response.file_content?.length || 0);
       setUploadMessage(`Successfully uploaded: ${response.filename}. Indexing will start shortly...`);
       
       // Store metadata in browser storage
