@@ -183,8 +183,23 @@ export const api = {
     if (result.use_browser_storage && result.file_content) {
       addBrowserStoredFile(result.file_id, result.filename, result.file_content);
       
+      // Set initial local status to match backend
+      this.updateLocalIndexingStatus(result.file_id, {
+        file_id: result.file_id,
+        status: result.indexing_status,
+        message: 'File uploaded, processing will start shortly...'
+      });
+      
       // Trigger client-side indexing for browser-stored files
       this.indexBrowserStoredFile(result.file_id, result.filename, result.file_content);
+    } else {
+      // For non-read-only mode, the backend handles indexing
+      // We can still track status locally for consistency
+      this.updateLocalIndexingStatus(result.file_id, {
+        file_id: result.file_id,
+        status: result.indexing_status,
+        message: 'File uploaded, indexing will start shortly...'
+      });
     }
 
     return result;
@@ -193,6 +208,16 @@ export const api = {
   async indexBrowserStoredFile(fileId: string, filename: string, base64Content: string): Promise<void> {
     try {
       console.log(`🔍 Starting indexing for browser-stored file: ${filename} (${fileId})`);
+      
+      // Set initial status to 'indexing' to show progress
+      const initialStatus = {
+        file_id: fileId,
+        status: 'indexing',
+        message: 'Processing file and creating embeddings...'
+      };
+      
+      // Store this status locally for immediate UI feedback
+      this.updateLocalIndexingStatus(fileId, initialStatus);
       
       // Convert base64 to File object
       const binaryString = atob(base64Content);
@@ -217,10 +242,39 @@ export const api = {
       // FileProcessor.processFile() already sends the data to the backend
       // No need to send it again here
       console.log(`✅ Successfully indexed browser-stored file: ${filename}`);
+      
+      // Update status to completed
+      const completedStatus = {
+        file_id: fileId,
+        status: 'completed',
+        message: `Successfully indexed ${chunks.length} chunks`
+      };
+      this.updateLocalIndexingStatus(fileId, completedStatus);
+      
     } catch (error) {
       console.error('❌ Error indexing browser-stored file:', error);
+      
+      // Update status to failed
+      const failedStatus = {
+        file_id: fileId,
+        status: 'failed',
+        message: `Indexing failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      };
+      this.updateLocalIndexingStatus(fileId, failedStatus);
+      
       // Don't throw here as this is called asynchronously
     }
+  },
+
+  // Local status tracking for browser-stored files
+  localIndexingStatus: {} as Record<string, FileIndexingStatus>,
+
+  updateLocalIndexingStatus(fileId: string, status: FileIndexingStatus): void {
+    this.localIndexingStatus[fileId] = status;
+  },
+
+  getLocalIndexingStatus(fileId: string): FileIndexingStatus | null {
+    return this.localIndexingStatus[fileId] || null;
   },
 
   async listFiles(): Promise<FileListResponse> {
@@ -232,45 +286,39 @@ export const api = {
 
     const result = await response.json();
 
-    // If we're in read-only mode, also include browser-stored files
+    // If we're in read-only mode, also include browser-stored files that aren't on the server
     const healthResponse = await this.healthCheck();
     if (healthResponse.readonly) {
       const browserFiles = getBrowserStoredFiles();
       const browserFilesList: Array<FileInfo> = [];
       
       for (const [fileId, fileData] of Object.entries(browserFiles)) {
-        // Check if this file is already indexed on the backend
-        let indexingStatus = 'unknown';
-        let indexingMessage = 'Stored in browser';
+        // Check if this file is already in the server response
+        const serverFile = result.files.find((f: FileInfo) => f.file_id === fileId);
         
-        try {
-          const statusResponse = await this.getFileIndexingStatus(fileId);
-          indexingStatus = statusResponse.status;
-          indexingMessage = statusResponse.message;
-        } catch (error) {
-          // File not found on backend, needs indexing
-          indexingStatus = 'pending';
-          indexingMessage = 'Needs indexing';
+        if (!serverFile) {
+          // File not on server, add it with local status
+          const localStatus = this.getLocalIndexingStatus(fileId);
+          let indexingStatus = 'unknown';
+          let indexingMessage = 'Stored in browser';
+          
+          if (localStatus) {
+            indexingStatus = localStatus.status;
+            indexingMessage = localStatus.message;
+          }
+          
+          browserFilesList.push({
+            file_id: fileId,
+            original_filename: fileData.filename,
+            uploaded_at: fileData.uploaded_at / 1000, // Convert to Unix timestamp
+            indexing_status: indexingStatus,
+            indexing_message: indexingMessage
+          });
         }
-        
-        browserFilesList.push({
-          file_id: fileId,
-          original_filename: fileData.filename,
-          uploaded_at: fileData.uploaded_at / 1000, // Convert to Unix timestamp
-          indexing_status: indexingStatus,
-          indexing_message: indexingMessage
-        });
       }
 
-      // Merge server and browser files, avoiding duplicates
-      const serverFileIds = new Set(result.files.map((file: FileInfo) => file.file_id));
-      const uniqueBrowserFiles: FileInfo[] = [];
-      for (const file of browserFilesList) {
-        if (!serverFileIds.has(file.file_id)) {
-          uniqueBrowserFiles.push(file);
-        }
-      }
-      result.files = [...result.files, ...uniqueBrowserFiles];
+      // Add browser files that aren't on server
+      result.files = [...result.files, ...browserFilesList];
     }
 
     return result;

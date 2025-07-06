@@ -339,7 +339,7 @@ async def index_file(file_content: bytes, file_id: str, filename: str):
         file_type = get_file_type(filename)
         
         if file_type == 'pdf':
-            # Handle PDF files
+            # Handle PDF files with improved text extraction
             if IS_READONLY:
                 # Store in memory
                 memory_stored_files[file_id] = file_content
@@ -353,12 +353,69 @@ async def index_file(file_content: bytes, file_id: str, filename: str):
                     f.write(file_content)
                 temp_file_path = str(file_path)
             
-            # Load PDF text
-            pdf_loader = PDFLoader(temp_file_path)
-            documents = pdf_loader.load_documents()
+            print(f"🔍 Processing PDF: {filename} ({len(file_content)} bytes)")
+            
+            # Try multiple PDF text extraction methods
+            documents = []
+            
+            # Method 1: Try PDFLoader from aimakerspace
+            try:
+                pdf_loader = PDFLoader(temp_file_path)
+                documents = pdf_loader.load_documents()
+                print(f"✅ PDFLoader extracted {len(documents)} documents")
+            except Exception as e:
+                print(f"⚠️ PDFLoader failed: {str(e)}")
+                documents = []
+            
+            # Method 2: If PDFLoader failed, try PyPDF2
+            if not documents:
+                try:
+                    import PyPDF2
+                    with open(temp_file_path, 'rb') as file:
+                        pdf_reader = PyPDF2.PdfReader(file)
+                        documents = []
+                        for i, page in enumerate(pdf_reader.pages):
+                            try:
+                                text = page.extract_text()
+                                if text.strip():
+                                    documents.append(f"Page {i+1}: {text.strip()}")
+                            except Exception as page_error:
+                                print(f"⚠️ Error extracting page {i+1}: {str(page_error)}")
+                    print(f"✅ PyPDF2 extracted {len(documents)} pages")
+                except Exception as e:
+                    print(f"⚠️ PyPDF2 failed: {str(e)}")
+                    documents = []
+            
+            # Method 3: If both failed, try basic text extraction
+            if not documents:
+                try:
+                    # Basic text extraction from PDF binary
+                    import re
+                    pdf_text = file_content.decode('utf-8', errors='ignore')
+                    # Extract text patterns from PDF
+                    text_patterns = [
+                        r'\(([^)]*)\)',  # Parenthesized text
+                        r'\[([^\]]*)\]',  # Bracket text
+                        r'BT[\s\S]*?ET',  # PDF text objects
+                        r'Tj\s*\(([^)]*)\)',  # PDF text content
+                    ]
+                    
+                    for pattern in text_patterns:
+                        matches = re.findall(pattern, pdf_text)
+                        if matches:
+                            documents.extend(matches)
+                    
+                    # Clean up extracted text
+                    documents = [doc for doc in documents if len(doc.strip()) > 10]
+                    print(f"✅ Basic extraction found {len(documents)} text chunks")
+                except Exception as e:
+                    print(f"⚠️ Basic extraction failed: {str(e)}")
+                    documents = []
             
             if not documents:
-                raise ValueError("No text could be extracted from the PDF")
+                raise ValueError("No text could be extracted from the PDF using any method")
+            
+            print(f"📄 Total extracted text chunks: {len(documents)}")
             
             # Split text into chunks
             splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
@@ -670,6 +727,12 @@ async def upload_file(file: UploadFile = File(...)):
         file_id = str(uuid.uuid4())
         filename = file.filename
         
+        # Initialize indexing status for both modes (consistent behavior)
+        indexing_status[file_id] = {
+            "status": "pending",
+            "message": "File uploaded, indexing will start shortly..."
+        }
+        
         if IS_READONLY:
             # In read-only mode, return the file content for browser storage
             import base64
@@ -689,13 +752,7 @@ async def upload_file(file: UploadFile = File(...)):
             with open(file_path, "wb") as buffer:
                 buffer.write(content)
             
-            # Initialize indexing status
-            indexing_status[file_id] = {
-                "status": "pending",
-                "message": "File uploaded, indexing will start shortly..."
-            }
-            
-            # Start indexing in the background
+            # Start indexing in the background (same as read-only mode will do client-side)
             asyncio.create_task(index_file(content, file_id, filename))
             
             return FileUploadResponse(
@@ -718,14 +775,20 @@ async def list_files():
         files = []
         
         if IS_READONLY:
-            # In read-only mode, return files from memory
+            # In read-only mode, return files from memory with proper status
             for file_id, content in memory_stored_files.items():
+                # Get indexing status from the centralized status tracking
+                status_info = indexing_status.get(file_id, {
+                    "status": "unknown",
+                    "message": "File in browser storage"
+                })
+                
                 files.append({
                     "file_id": file_id,
                     "original_filename": f"File_{file_id[:8]}.pdf",  # Fallback name
                     "uploaded_at": datetime.now().timestamp(),
-                    "indexing_status": "unknown",
-                    "indexing_message": "File in browser storage"
+                    "indexing_status": status_info["status"],
+                    "indexing_message": status_info["message"]
                 })
         else:
             # List files from disk - support multiple extensions
@@ -736,7 +799,7 @@ async def list_files():
                     original_name = "_".join(stored_name.split("_")[1:])  # Remove UUID prefix
                     file_id = stored_name.split("_")[0]
                     
-                    # Get indexing status
+                    # Get indexing status from centralized status tracking
                     status_info = indexing_status.get(file_id, {
                         "status": "unknown",
                         "message": "Status unknown"
@@ -911,6 +974,62 @@ async def delete_file(file_id: str):
     except Exception as e:
         logger.error(f"Error deleting file {file_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to delete file: {str(e)}")
+
+# Define a test endpoint for PDF processing
+@app.post("/api/test-pdf-processing")
+async def test_pdf_processing(file: UploadFile = File(...)):
+    """Test endpoint to verify PDF processing is working"""
+    try:
+        content = await file.read()
+        file_id = str(uuid.uuid4())
+        filename = file.filename
+        
+        print(f"🧪 Testing PDF processing for: {filename}")
+        
+        # Test the same PDF processing logic
+        temp_file_path = f"/tmp/test_{file_id}_{filename}"
+        with open(temp_file_path, 'wb') as f:
+            f.write(content)
+        
+        documents = []
+        
+        # Try PDFLoader
+        try:
+            pdf_loader = PDFLoader(temp_file_path)
+            documents = pdf_loader.load_documents()
+            print(f"✅ PDFLoader test: {len(documents)} documents")
+        except Exception as e:
+            print(f"❌ PDFLoader test failed: {str(e)}")
+        
+        # Try PyPDF2
+        try:
+            import PyPDF2
+            with open(temp_file_path, 'rb') as file:
+                pdf_reader = PyPDF2.PdfReader(file)
+                pypdf2_docs = []
+                for i, page in enumerate(pdf_reader.pages):
+                    text = page.extract_text()
+                    if text.strip():
+                        pypdf2_docs.append(f"Page {i+1}: {text.strip()}")
+            print(f"✅ PyPDF2 test: {len(pypdf2_docs)} pages")
+        except Exception as e:
+            print(f"❌ PyPDF2 test failed: {str(e)}")
+        
+        # Clean up
+        try:
+            os.remove(temp_file_path)
+        except:
+            pass
+        
+        return {
+            "filename": filename,
+            "file_size": len(content),
+            "pdf_loader_documents": len(documents),
+            "pypdf2_pages": len(pypdf2_docs) if 'pypdf2_docs' in locals() else 0
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"PDF processing test failed: {str(e)}")
 
 # Entry point for running the application directly
 if __name__ == "__main__":

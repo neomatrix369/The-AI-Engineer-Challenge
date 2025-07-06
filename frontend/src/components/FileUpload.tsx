@@ -42,23 +42,30 @@ export default function FileUpload({ onFileListChange }: FileUploadProps) {
       );
       
       if (hasIndexingFiles) {
-        // Check for browser-stored files that need indexing
-        const browserFiles = api.getBrowserStoredFiles();
-        for (const [fileId, fileData] of Object.entries(browserFiles)) {
-          const file = files.find(f => f.file_id === fileId);
-          if (file && file.indexing_status === 'pending') {
-            // Trigger indexing for this file
-            try {
-              await api.indexBrowserStoredFile(fileId, fileData.filename, fileData.content);
-            } catch (error) {
-              console.error('Failed to index browser-stored file:', error);
+        // Check status without full reload to avoid flickering
+        try {
+          const response = await api.listFiles();
+          const newFiles = response.files;
+          
+          // Only update if status actually changed
+          let hasChanges = false;
+          for (let i = 0; i < files.length; i++) {
+            const oldFile = files[i];
+            const newFile = newFiles.find(f => f.file_id === oldFile.file_id);
+            if (newFile && newFile.indexing_status !== oldFile.indexing_status) {
+              hasChanges = true;
+              break;
             }
           }
+          
+          if (hasChanges) {
+            setFiles(newFiles);
+          }
+        } catch (error) {
+          console.error('Failed to check file status:', error);
         }
-        
-        await loadFiles();
       }
-    }, 2000); // Poll every 2 seconds
+    }, 3000); // Poll every 3 seconds instead of 2
 
     return () => clearInterval(interval);
   }, [files]);

@@ -522,12 +522,8 @@ export default function Chat({ fileListVersion = 0 }: ChatProps) {
   };
 
   const readyFiles = files.filter(file => {
-    // In read-only environments, include files with "unknown" status as they are browser-stored
-    // and should be available for chat
-    if (file.indexing_status === 'completed' || file.indexing_status === 'unknown') {
-      return true;
-    }
-    return false;
+    // Only include files that are fully indexed and ready for chat
+    return file.indexing_status === 'completed';
   });
 
   return (
