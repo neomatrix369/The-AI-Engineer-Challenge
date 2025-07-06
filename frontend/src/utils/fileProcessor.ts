@@ -3,29 +3,24 @@ import * as pdfjsLib from 'pdfjs-dist';
 // Set up PDF.js worker with local file as primary option
 const setupPDFWorker = () => {
   try {
-    // Try local worker file first (most reliable for production)
+    // Use local worker file as primary option (most reliable for production)
     pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+    console.log('📄 PDF worker configured to use local file');
   } catch (error) {
-    console.warn('Failed to set up local PDF worker, trying CDN...');
-    try {
-      // Try the CDN as fallback
-      pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
-    } catch (error2) {
-      console.warn('Failed to set up PDF worker from CDN, trying alternative CDN...');
-      try {
-        // Alternative CDN
-        pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`;
-      } catch (error3) {
-        console.warn('All PDF worker options failed, using empty string');
-        // Use empty string as last resort
-        pdfjsLib.GlobalWorkerOptions.workerSrc = '';
-      }
-    }
+    console.warn('⚠️ Failed to set up PDF worker, will use fallback mode');
+    // Disable worker completely as fallback
+    pdfjsLib.GlobalWorkerOptions.workerSrc = '';
   }
 };
 
-// Initialize PDF worker
+// Initialize PDF worker immediately
 setupPDFWorker();
+
+// Also set up worker when the module is imported (in case it's imported after PDF.js initialization)
+if (typeof window !== 'undefined') {
+  // Ensure worker is set up in browser environment
+  setupPDFWorker();
+}
 
 export interface PDFChunk {
   text: string;
@@ -43,9 +38,13 @@ export class FileProcessor {
       const arrayBuffer = await file.arrayBuffer();
       console.log('📄 PDF loaded, attempting to parse...');
       
-      // Try to load the PDF document
+      // Completely disable worker to avoid CORS issues
+      pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+      
+      // Load PDF document without worker
       const pdf = await pdfjsLib.getDocument({ 
-        data: arrayBuffer
+        data: arrayBuffer,
+        worker: undefined
       }).promise;
       
       console.log(`📄 PDF parsed successfully, ${pdf.numPages} pages found`);
@@ -90,7 +89,7 @@ export class FileProcessor {
       // Provide a more helpful error message
       const errorMessage = error instanceof Error ? error.message : String(error);
       
-      if (errorMessage.includes('worker') || errorMessage.includes('fetch')) {
+      if (errorMessage.includes('worker') || errorMessage.includes('fetch') || errorMessage.includes('CORS')) {
         throw new Error('PDF processing failed due to worker loading issue. Please try a different file or contact support.');
       } else if (errorMessage.includes('No text content')) {
         throw new Error('PDF appears to be image-based or has no extractable text. Please try a text-based PDF.');
@@ -280,45 +279,11 @@ export class FileProcessor {
   }
 
   /**
-   * Create embeddings for text chunks using OpenAI API
-   */
-  static async createEmbeddings(texts: string[]): Promise<number[][]> {
-    const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
-    if (!apiKey) {
-      throw new Error('OpenAI API key not configured');
-    }
-
-    try {
-      const response = await fetch('https://api.openai.com/v1/embeddings', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          input: texts,
-          model: 'text-embedding-3-small'
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`OpenAI API error: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      return data.data.map((item: any) => item.embedding);
-    } catch (error) {
-      console.error('Error creating embeddings:', error);
-      throw new Error('Failed to create embeddings');
-    }
-  }
-
-  /**
    * Process any supported file type: PDF, Markdown, Text, CSV, or JSON
+   * and send pre-indexed data to backend (chunks only, no embeddings)
    */
-  static async processFile(file: File): Promise<{
+  static async processFile(file: File, fileId?: string): Promise<{
     chunks: string[];
-    embeddings: number[][];
   }> {
     const fileType = file.name.toLowerCase().split('.').pop();
     
@@ -364,13 +329,47 @@ export class FileProcessor {
       throw new Error('No text chunks could be created from the file');
     }
     
-    // Create embeddings
-    const embeddings = await this.createEmbeddings(chunks);
+    // Send only chunks to backend for processing (no embeddings)
+    console.log('🔗 Sending pre-indexed file data (chunks only) to backend...');
     
-    return {
-      chunks,
-      embeddings
-    };
+    try {
+      // Use provided fileId or generate one if not provided
+      const finalFileId = fileId || crypto.randomUUID();
+      
+      // Get API base URL (same logic as api.ts)
+      const FALLBACK_API_URL = 'http://localhost:8000';
+      const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || FALLBACK_API_URL;
+      
+      const response = await fetch(`${API_BASE_URL}/api/pre-indexed-file`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          file_id: finalFileId,
+          filename: file.name,
+          chunks: chunks
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Backend processing error:', response.status, errorText);
+        throw new Error(`Backend processing failed: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      console.log('✅ Backend processing completed:', result);
+      
+      // Return the chunks for browser storage
+      return {
+        chunks
+      };
+      
+    } catch (error) {
+      console.error('❌ Error sending to backend:', error);
+      throw new Error(`Failed to process file with backend: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   /**
@@ -379,7 +378,6 @@ export class FileProcessor {
    */
   static async processPDF(file: File): Promise<{
     chunks: string[];
-    embeddings: number[][];
   }> {
     return this.processFile(file);
   }

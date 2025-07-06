@@ -62,7 +62,6 @@ interface PreIndexedFileRequest {
   file_id: string;
   filename: string;
   chunks: string[];
-  embeddings: number[][];
 }
 
 const FALLBACK_API_URL = 'http://localhost:8000';
@@ -211,36 +210,13 @@ export const api = {
       console.log(`⚙️ Processing file with FileProcessor...`);
       
       // Process the file
-      const { chunks, embeddings } = await FileProcessor.processFile(file);
+      const { chunks } = await FileProcessor.processFile(file, fileId);
       
-      console.log(`✅ File processed: ${chunks.length} chunks, ${embeddings.length} embeddings`);
+      console.log(`✅ File processed: ${chunks.length} chunks`);
       
-      // Send pre-indexed data to backend
-      const request: PreIndexedFileRequest = {
-        file_id: fileId,
-        filename: filename,
-        chunks: chunks,
-        embeddings: embeddings
-      };
-
-      console.log(`📤 Sending pre-indexed data to backend...`);
-
-      const response = await fetch(`${API_BASE_URL}/api/pre-indexed-file`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(request),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`❌ Backend indexing failed: ${errorText}`);
-        throw new Error(`Failed to index browser-stored file: ${errorText}`);
-      }
-
-      const result = await response.json();
-      console.log(`✅ Successfully indexed browser-stored file: ${filename}`, result);
+      // FileProcessor.processFile() already sends the data to the backend
+      // No need to send it again here
+      console.log(`✅ Successfully indexed browser-stored file: ${filename}`);
     } catch (error) {
       console.error('❌ Error indexing browser-stored file:', error);
       // Don't throw here as this is called asynchronously

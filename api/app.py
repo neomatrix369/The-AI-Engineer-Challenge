@@ -232,7 +232,7 @@ class PreIndexedFileRequest(BaseModel):
     file_id: str
     filename: str
     chunks: List[str]
-    embeddings: List[List[float]]
+    embeddings: Optional[List[List[float]]] = None
 
 # In-memory storage for indexing status (in production, use a proper database)
 indexing_status = {}
@@ -776,24 +776,48 @@ async def accept_pre_indexed_file(request: PreIndexedFileRequest):
     """Accept pre-indexed file data from the frontend for browser-stored files"""
     try:
         print(f"🔍 Processing pre-indexed file: {request.file_id} ({request.filename})")
-        print(f"📊 Received {len(request.chunks)} chunks and {len(request.embeddings)} embeddings")
+        print(f"📊 Received {len(request.chunks)} chunks")
         
         # Validate input
-        if not request.chunks or not request.embeddings:
-            raise ValueError("No chunks or embeddings provided")
+        if not request.chunks:
+            raise ValueError("No chunks provided")
         
-        if len(request.chunks) != len(request.embeddings):
-            raise ValueError(f"Mismatch: {len(request.chunks)} chunks vs {len(request.embeddings)} embeddings")
+        # Get OpenAI API key from environment
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OpenAI API key not configured on backend")
         
-        # Create vector database from pre-indexed data
+        # Create OpenAI client
+        client = OpenAI(api_key=api_key)
+        
+        print(f"🔗 Creating embeddings for {len(request.chunks)} chunks...")
+        
+        # Create real embeddings using OpenAI API
+        embeddings = []
+        for i, chunk in enumerate(request.chunks):
+            try:
+                response = client.embeddings.create(
+                    input=chunk,
+                    model="text-embedding-3-small"
+                )
+                embedding = response.data[0].embedding
+                embeddings.append(embedding)
+                print(f"✅ Created embedding {i+1}/{len(request.chunks)}")
+            except Exception as e:
+                print(f"❌ Error creating embedding {i+1}: {str(e)}")
+                raise
+        
+        print(f"✅ Created {len(embeddings)} embeddings successfully")
+        
+        # Create vector database from real embeddings
         vector_db = VectorDatabase()
         
-        # Convert embeddings to numpy arrays and insert into vector database
+        # Insert chunks and embeddings into vector database
         import numpy as np
-        for i, (chunk, embedding) in enumerate(zip(request.chunks, request.embeddings)):
+        for i, (chunk, embedding) in enumerate(zip(request.chunks, embeddings)):
             try:
                 vector_db.insert(chunk, np.array(embedding))
-                print(f"✅ Inserted chunk {i+1}/{len(request.chunks)}")
+                print(f"✅ Inserted chunk {i+1}/{len(request.chunks)} into vector database")
             except Exception as e:
                 print(f"❌ Error inserting chunk {i+1}: {str(e)}")
                 raise

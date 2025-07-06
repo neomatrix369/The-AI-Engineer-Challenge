@@ -61,6 +61,56 @@ curl https://your-vercel-app.vercel.app/api/health
 
 Should return: `{"status": "ok", "readonly": true}`
 
+### 5. OpenAI API Key Configuration Issues
+
+**Problem**: "OpenAI API key not configured" error
+
+**Symptoms**:
+- Console error: `Error: OpenAI API key not configured`
+- File processing fails during embedding creation
+- Files upload but fail to index
+
+**Root Cause**: Missing or incorrectly configured OpenAI API key in Vercel environment variables
+
+**Solution**:
+1. **Get OpenAI API Key**:
+   - Go to https://platform.openai.com/api-keys
+   - Create a new API key or use existing one
+
+2. **Configure in Vercel**:
+   - Go to your Vercel project dashboard
+   - Navigate to Settings → Environment Variables
+   - Add variable: `NEXT_PUBLIC_OPENAI_API_KEY`
+   - Set value to your OpenAI API key
+   - Deploy to apply changes
+
+3. **Local Development**:
+   - Copy `frontend/env.example` to `frontend/.env.local`
+   - Add your OpenAI API key to `.env.local`
+
+**Testing the Fix**:
+1. Verify API key is set in Vercel environment variables
+2. Redeploy the application
+3. Upload a file and check console for embedding creation
+4. Verify file indexing completes successfully
+
+### 6. File Upload and Storage Issues
+
+**Problem**: Files show "Unknown" status after upload
+
+**Symptoms**:
+- Files appear in file list but status remains "Unknown"
+- No indexing progress shown
+- Chat tab indicates no files available
+
+**Root Cause**: Browser storage limitations or file processing failures
+
+**Solutions**:
+- Check browser storage limits (localStorage has ~5-10MB limit)
+- Verify file size is reasonable (< 1MB recommended)
+- Ensure file format is supported (PDF, CSV, JSON, MD, TXT)
+- Check console for processing errors
+
 ## 🐛 Common Issues and Solutions
 
 ### Issue 1: File Not Stored in Browser
