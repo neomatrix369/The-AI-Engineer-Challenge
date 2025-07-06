@@ -13,16 +13,102 @@ export interface PDFChunk {
 
 export class FileProcessor {
   /**
-   * Extract text from a PDF file with fallback handling
+   * Simple PDF text extraction that bypasses PDF.js for read-only environments
    */
   static async extractTextFromPDF(file: File): Promise<string[]> {
     try {
-      console.log('📄 Starting PDF text extraction...');
+      console.log('📄 Starting simple PDF text extraction...');
+      
+      // For read-only environments, use a simpler approach
+      // This avoids PDF.js worker issues entirely
+      const arrayBuffer = await file.arrayBuffer();
+      
+      // Try to extract text using a basic approach
+      const text = await this.extractTextFromPDFBasic(arrayBuffer);
+      
+      if (!text || text.trim().length === 0) {
+        throw new Error('No text content could be extracted from PDF');
+      }
+      
+      // Split into chunks based on paragraphs or sections
+      const chunks = text.split(/\n\s*\n/).filter(chunk => chunk.trim().length > 0);
+      
+      if (chunks.length === 0) {
+        // If no paragraphs found, split by sentences
+        const sentences = text.split(/[.!?]+/).filter(sentence => sentence.trim().length > 0);
+        if (sentences.length === 0) {
+          // If no sentences found, just return the whole text as one chunk
+          chunks.push(text.trim());
+        } else {
+          chunks.push(...sentences.map(s => s.trim()));
+        }
+      }
+      
+      console.log(`✅ Simple PDF text extraction completed: ${chunks.length} text chunks`);
+      return chunks;
+      
+    } catch (error) {
+      console.error('❌ Error in simple PDF extraction:', error);
+      
+      // Try fallback with PDF.js as last resort
+      try {
+        console.log('📄 Trying PDF.js fallback...');
+        return await this.extractTextFromPDFWithPDFJS(file);
+      } catch (pdfjsError) {
+        console.error('❌ PDF.js fallback also failed:', pdfjsError);
+        throw new Error('PDF processing is not available. Please try a different file format.');
+      }
+    }
+  }
+
+  /**
+   * Basic PDF text extraction without PDF.js
+   */
+  private static async extractTextFromPDFBasic(arrayBuffer: ArrayBuffer): Promise<string> {
+    // This is a very basic approach that might work for some PDFs
+    // It looks for text content in the PDF binary data
+    const uint8Array = new Uint8Array(arrayBuffer);
+    const decoder = new TextDecoder('utf-8');
+    
+    // Convert to string and look for text patterns
+    const dataString = decoder.decode(uint8Array);
+    
+    // Extract text content using regex patterns
+    const textPatterns = [
+      /\(([^)]*)\)/g,  // Parenthesized text
+      /\[([^\]]*)\]/g,  // Bracket text
+      /BT[\s\S]*?ET/g,  // PDF text objects
+      /Tj\s*\(([^)]*)\)/g,  // PDF text content
+    ];
+    
+    let extractedText = '';
+    
+    for (const pattern of textPatterns) {
+      const matches = dataString.match(pattern);
+      if (matches) {
+        extractedText += matches.join(' ') + ' ';
+      }
+    }
+    
+    // Clean up the extracted text
+    extractedText = extractedText
+      .replace(/[^\w\s.,!?;:()\[\]]/g, ' ')  // Remove special characters
+      .replace(/\s+/g, ' ')  // Normalize whitespace
+      .trim();
+    
+    return extractedText;
+  }
+
+  /**
+   * PDF.js-based text extraction (fallback)
+   */
+  private static async extractTextFromPDFWithPDFJS(file: File): Promise<string[]> {
+    try {
+      console.log('📄 Starting PDF.js text extraction...');
       
       const arrayBuffer = await file.arrayBuffer();
-      console.log('📄 PDF loaded, attempting to parse...');
       
-      // Load PDF document without worker (already disabled globally)
+      // Load PDF document without worker
       const loadingTask = pdfjsLib.getDocument({
         data: arrayBuffer,
         worker: undefined,
@@ -31,7 +117,6 @@ export class FileProcessor {
       });
       
       const pdf = await loadingTask.promise;
-      
       console.log(`📄 PDF parsed successfully, ${pdf.numPages} pages found`);
       
       const textChunks: string[] = [];
@@ -65,83 +150,12 @@ export class FileProcessor {
         throw new Error('No text content could be extracted from PDF');
       }
       
-      console.log(`✅ PDF text extraction completed: ${textChunks.length} text chunks`);
+      console.log(`✅ PDF.js text extraction completed: ${textChunks.length} text chunks`);
       return textChunks;
       
     } catch (error) {
-      console.error('❌ Error extracting text from PDF:', error);
-      
-      // Provide a more helpful error message
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      
-      if (errorMessage.includes('worker') || errorMessage.includes('fetch') || errorMessage.includes('CORS') || errorMessage.includes('GlobalWorkerOptions')) {
-        throw new Error('PDF processing failed due to worker loading issue. Please try a different file or contact support.');
-      } else if (errorMessage.includes('No text content')) {
-        throw new Error('PDF appears to be image-based or has no extractable text. Please try a text-based PDF.');
-      } else {
-        throw new Error(`Failed to extract text from PDF: ${errorMessage}`);
-      }
-    }
-  }
-
-  /**
-   * Fallback PDF text extraction that doesn't rely on the worker
-   */
-  static async extractTextFromPDFFallback(file: File): Promise<string[]> {
-    try {
-      console.log('📄 Starting fallback PDF text extraction...');
-      
-      // Try a different approach without worker
-      const arrayBuffer = await file.arrayBuffer();
-      
-      // Try to load PDF with minimal options (worker already disabled globally)
-      const loadingTask = pdfjsLib.getDocument({
-        data: arrayBuffer,
-        worker: undefined,
-        isEvalSupported: false,
-        useSystemFonts: false,
-        standardFontDataUrl: undefined
-      });
-      
-      const pdf = await loadingTask.promise;
-      console.log(`📄 Fallback PDF parsing successful, ${pdf.numPages} pages found`);
-      
-      const textChunks: string[] = [];
-      
-      // Process each page
-      for (let pageNum = 1; pageNum <= Math.min(pdf.numPages, 10); pageNum++) { // Limit to first 10 pages
-        try {
-          console.log(`📄 Fallback processing page ${pageNum}/${pdf.numPages}...`);
-          const page = await pdf.getPage(pageNum);
-          const textContent = await page.getTextContent();
-          
-          let pageText = '';
-          for (const item of textContent.items) {
-            if ('str' in item && item.str) {
-              pageText += item.str + ' ';
-            }
-          }
-          
-          if (pageText.trim()) {
-            textChunks.push(pageText.trim());
-            console.log(`📄 Fallback page ${pageNum}: ${pageText.trim().substring(0, 100)}...`);
-          }
-        } catch (pageError) {
-          console.warn(`⚠️ Fallback error processing page ${pageNum}:`, pageError);
-          // Continue with other pages
-        }
-      }
-      
-      if (textChunks.length === 0) {
-        throw new Error('No text content could be extracted in fallback mode');
-      }
-      
-      console.log(`✅ Fallback PDF text extraction completed: ${textChunks.length} text chunks`);
-      return textChunks;
-      
-    } catch (error) {
-      console.error('❌ Error in fallback PDF extraction:', error);
-      throw new Error('PDF processing is not available. Please try a different file format.');
+      console.error('❌ Error in PDF.js extraction:', error);
+      throw error;
     }
   }
 
@@ -319,21 +333,8 @@ export class FileProcessor {
     let textChunks: string[];
     
     if (fileType === 'pdf') {
-      // Extract text from PDF with fallback
-      try {
-        textChunks = await this.extractTextFromPDF(file);
-      } catch (error) {
-        console.warn('⚠️ Main PDF extraction failed, trying fallback...');
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        
-        if (errorMessage.includes('worker') || errorMessage.includes('fetch')) {
-          // Use fallback for worker-related errors
-          textChunks = await this.extractTextFromPDFFallback(file);
-        } else {
-          // Re-throw other errors
-          throw error;
-        }
-      }
+      // Extract text from PDF with built-in fallback handling
+      textChunks = await this.extractTextFromPDF(file);
     } else if (fileType === 'md' || fileType === 'txt') {
       // Extract text from markdown or text files
       textChunks = await this.extractTextFromFile(file);
