@@ -448,20 +448,31 @@ export const api = {
       }
 
       const browserFiles = getBrowserStoredFiles();
+      console.log('🔍 Browser files:', browserFiles);
       
       for (const [fileId, fileData] of Object.entries(browserFiles)) {
+        console.log(`🔍 Processing file ${fileId}:`, {
+          filename: fileData.filename,
+          hasContent: !!fileData.content,
+          contentLength: fileData.content?.length || 0,
+          uploadedAt: fileData.uploaded_at
+        });
+        
         // Check if this file is already indexed on the backend
         try {
           const statusResponse = await this.getFileIndexingStatus(fileId);
           if (statusResponse.status === 'completed') {
+            console.log(`✅ File ${fileId} already indexed, skipping`);
             continue; // Already indexed
           }
         } catch (error) {
           // File not found on backend, needs indexing
+          console.log(`📝 File ${fileId} not found on backend, will index`);
         }
         
         // Index the file
         if (fileData.content) {
+          console.log(`🚀 Indexing file ${fileId} with ${fileData.content.length} chars of content`);
           await this.indexBrowserStoredFile(fileId, fileData.filename, fileData.content);
         } else {
           console.warn(`⚠️ No content found for file ${fileId}, skipping indexing`);

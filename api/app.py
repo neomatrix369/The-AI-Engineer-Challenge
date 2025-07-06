@@ -985,6 +985,12 @@ async def upload_file(file: UploadFile = File(...)):
             import base64
             file_content_b64 = base64.b64encode(content).decode('utf-8')
             
+            logger.info(f"📤 Sending file {file_id} to browser storage mode")
+            logger.info(f"   - File size: {len(content)} bytes")
+            logger.info(f"   - Base64 content length: {len(file_content_b64)} chars")
+            logger.info(f"   - Browser storage enabled: {USE_BROWSER_STORAGE}")
+            logger.info(f"   - Read-only mode: {IS_READONLY}")
+            
             return FileUploadResponse(
                 filename=filename,
                 file_id=file_id,
@@ -1100,7 +1106,13 @@ async def accept_pre_indexed_file(request: PreIndexedFileRequest):
             
             try:
                 for j, (chunk, embedding) in enumerate(zip(batch_chunks, batch_embeddings)):
-                    vector_db.insert(chunk, np.array(embedding), metadata={"file_id": request.file_id, "filename": request.filename})
+                    # Check if the vector database supports metadata by checking its type
+                    if isinstance(vector_db, QdrantVectorDatabase):
+                        # QdrantVectorDatabase supports metadata
+                        vector_db.insert(chunk, np.array(embedding), metadata={"file_id": request.file_id, "filename": request.filename})
+                    else:
+                        # In-memory VectorDatabase doesn't support metadata
+                        vector_db.insert(chunk, np.array(embedding))
                 
                 logger.info(f"✅ Inserted batch {i//insert_batch_size + 1}/{(len(request.chunks) + insert_batch_size - 1)//insert_batch_size} into vector database")
             except Exception as e:

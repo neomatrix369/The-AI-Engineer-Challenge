@@ -10,13 +10,14 @@ interface FileUploadProps {
 }
 
 // Helper to store file metadata in browser storage
-function storeFileMetadataInBrowser(fileId: string, filename: string, vectorStoreType: string) {
+function storeFileMetadataInBrowser(fileId: string, filename: string, vectorStoreType: string, fileContent?: string) {
   const files = getBrowserStoredFiles();
   files[fileId] = {
     ...files[fileId],
     filename,
     vector_store_type: vectorStoreType,
     uploaded_at: Date.now(),
+    content: fileContent,
   };
   setBrowserStoredFiles(files);
 }
@@ -189,8 +190,8 @@ export default function FileUpload({ onFileListChange }: FileUploadProps) {
       setUploadMessage(`Successfully uploaded: ${response.filename}. Indexing will start shortly...`);
       
       // Store metadata in browser storage
-      storeFileMetadataInBrowser(response.file_id, response.filename, response.vector_store_type);
-      console.log('💾 Stored in browser:', response.file_id, response.filename, response.vector_store_type);
+      storeFileMetadataInBrowser(response.file_id, response.filename, response.vector_store_type, response.file_content);
+      console.log('💾 Stored in browser:', response.file_id, response.filename, response.vector_store_type, response.file_content ? '(with content)' : '(metadata only)');
       
       // Add the new file to the local state immediately with the real filename
       const newFile: FileInfo = {
