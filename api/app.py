@@ -14,12 +14,77 @@ from pathlib import Path
 import json
 import asyncio
 from datetime import datetime
+import logging
+import sys
 
 # Import aimakerspace components for PDF processing and indexing
 from aimakerspace.text_utils import PDFLoader, CharacterTextSplitter
 from aimakerspace.vectordatabase import VectorDatabase, QdrantVectorDatabase
 
 load_dotenv()
+
+# Set up logging configuration
+def setup_logger(name: str = "ai_makerspace", log_level: str = "INFO") -> logging.Logger:
+    """Set up a logger with both file and console handlers."""
+    logger = logging.getLogger(name)
+    logger.setLevel(getattr(logging, log_level.upper()))
+    
+    # Clear any existing handlers to avoid duplicates
+    logger.handlers.clear()
+    
+    # Create formatters
+    detailed_formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(funcName)s - %(message)s'
+    )
+    console_formatter = logging.Formatter(
+        '%(asctime)s - %(levelname)s - %(message)s'
+    )
+    
+    # Console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(console_formatter)
+    logger.addHandler(console_handler)
+    
+    # File handler - create logs directory if it doesn't exist
+    try:
+        logs_dir = Path("logs")
+        logs_dir.mkdir(exist_ok=True)
+        
+        # Create log file with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_file = logs_dir / f"{name}_{timestamp}.log"
+        
+        file_handler = logging.FileHandler(log_file, encoding='utf-8')
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(detailed_formatter)
+        logger.addHandler(file_handler)
+        
+        # Log the setup
+        logger.info(f"Logger '{name}' initialized with level {log_level}")
+        logger.info(f"Log file: {log_file}")
+        logger.info(f"Environment: {'Vercel' if os.getenv('VERCEL') else 'Local'}")
+    except Exception as e:
+        # If file logging fails (e.g., on Vercel), just use console logging
+        logger.warning(f"File logging not available: {e}")
+        logger.info(f"Logger '{name}' initialized with console-only logging")
+    
+    return logger
+
+def get_logger(name: str = "ai_makerspace") -> logging.Logger:
+    """Get a logger instance. If not already configured, it will be set up."""
+    logger = logging.getLogger(name)
+    
+    # If logger doesn't have handlers, set it up
+    if not logger.handlers:
+        # Get log level from environment or default to INFO
+        log_level = os.getenv("LOG_LEVEL", "INFO")
+        setup_logger(name, log_level)
+    
+    return logger
+
+# Initialize logger
+logger = get_logger("api")
 
 # Initialize FastAPI application with a title
 app = FastAPI(title="OpenAI Chat API")
@@ -31,6 +96,14 @@ FRONTEND_URL = os.getenv("NEXT_PUBLIC_API_URL", "http://localhost:3000")
 USE_QDRANT = os.getenv("USE_QDRANT", "false").lower() == "true"
 USE_BROWSER_STORAGE = os.getenv("USE_BROWSER_STORAGE", "true").lower() == "true"
 
+# Debug environment variables
+logger.info("🔍 Environment Variables:")
+logger.info(f"   - VERCEL: {os.getenv('VERCEL')}")
+logger.info(f"   - USE_QDRANT: {os.getenv('USE_QDRANT')} -> {USE_QDRANT}")
+logger.info(f"   - USE_BROWSER_STORAGE: {os.getenv('USE_BROWSER_STORAGE')} -> {USE_BROWSER_STORAGE}")
+logger.info(f"   - QDRANT_URL: {os.getenv('QDRANT_URL', 'Not set')}")
+logger.info(f"   - QDRANT_API_KEY: {'Set' if os.getenv('QDRANT_API_KEY') else 'Not set'}")
+
 # Environment detection
 def is_vercel_environment():
     """Check if we're running on Vercel"""
@@ -40,10 +113,23 @@ def is_local_environment():
     """Check if we're running locally"""
     return not is_vercel_environment()
 
+# Auto-detect Qdrant for Vercel environments if not explicitly set
+if is_vercel_environment() and os.getenv("USE_QDRANT") is None:
+    # If we're in Vercel and USE_QDRANT is not explicitly set, 
+    # check if Qdrant credentials are available
+    if os.getenv("QDRANT_URL") and os.getenv("QDRANT_API_KEY"):
+        logger.info("🚀 Auto-detecting Qdrant for Vercel environment")
+        USE_QDRANT = True
+        logger.info(f"   - Auto-enabled USE_QDRANT: {USE_QDRANT}")
+    else:
+        logger.warning("⚠️ Vercel environment detected but Qdrant credentials not found")
+        logger.info("   - Using browser storage fallback")
+
 # Create uploads directory if it doesn't exist
 UPLOADS_DIR = Path("uploads")
 INDEXES_DIR = Path("indexes")
 CHAT_HISTORY_DIR = Path("chat_history")
+FILE_METADATA_PATH = Path("file_metadata.json")
 
 # Check if we're in a read-only environment (like Vercel)
 def is_readonly_environment():
@@ -142,15 +228,22 @@ class PreIndexedFileRequest(BaseModel):
 # Vector database factory
 def create_vector_database(file_id: str = None):
     """Create appropriate vector database based on configuration"""
+    logger.info(f"🔍 Creating vector database for file_id: {file_id}")
+    logger.info(f"   - USE_QDRANT: {USE_QDRANT}")
+    logger.info(f"   - QDRANT_URL: {os.getenv('QDRANT_URL', 'Not set')}")
+    logger.info(f"   - QDRANT_API_KEY: {'Set' if os.getenv('QDRANT_API_KEY') else 'Not set'}")
+    
     if USE_QDRANT:
         try:
             collection_name = f"documents_{file_id}" if file_id else "documents"
+            logger.info(f"🚀 Creating Qdrant vector database with collection: {collection_name}")
             return QdrantVectorDatabase(collection_name=collection_name)
         except Exception as e:
-            print(f"⚠️ Qdrant initialization failed: {str(e)}")
-            print("⚠️ Falling back to in-memory vector database")
+            logger.warning(f"⚠️ Qdrant initialization failed: {str(e)}")
+            logger.warning("⚠️ Falling back to in-memory vector database")
             return VectorDatabase()
     else:
+        logger.info(f"💾 Creating in-memory vector database")
         return VectorDatabase()
 
 # In-memory storage for indexing status (in production, use a proper database)
@@ -176,7 +269,7 @@ try:
     else:
         file_metadata = {}
 except Exception as e:
-    print(f"⚠️ Failed to load file_metadata: {e}")
+    logger.warning(f"⚠️ Failed to load file_metadata: {e}")
     file_metadata = {}
 
 def save_chat_session(session: ChatSession):
@@ -191,7 +284,7 @@ def save_chat_session(session: ChatSession):
         with open(session_file, 'w') as f:
             json.dump(session.dict(), f, indent=2)
     except Exception as e:
-        print(f"Warning: Failed to save chat session: {e}")
+        logger.warning(f"Warning: Failed to save chat session: {e}")
 
 def load_chat_session(session_id: str) -> Optional[ChatSession]:
     """Load chat session from file or memory"""
@@ -205,7 +298,7 @@ def load_chat_session(session_id: str) -> Optional[ChatSession]:
                 data = json.load(f)
                 return ChatSession(**data)
     except Exception as e:
-        print(f"Warning: Failed to load chat session: {e}")
+        logger.warning(f"Warning: Failed to load chat session: {e}")
     return None
 
 # Text extraction functions
@@ -243,7 +336,7 @@ def extract_csv_content(content: bytes) -> List[str]:
         
         return formatted_rows
     except Exception as e:
-        print(f"Error processing CSV: {e}")
+        logger.error(f"Error processing CSV: {e}")
         return []
 
 def extract_json_content(content: bytes) -> List[str]:
@@ -271,13 +364,19 @@ def extract_json_content(content: bytes) -> List[str]:
         flattened = flatten_json(data)
         return flattened
     except Exception as e:
-        print(f"Error processing JSON: {e}")
+        logger.error(f"Error processing JSON: {e}")
         return []
 
 # Health check endpoint
 @app.get("/api/health")
 async def health_check():
     """Health check endpoint"""
+    logger.info(f"🔍 Health check requested:")
+    logger.info(f"   - IS_READONLY: {IS_READONLY}")
+    logger.info(f"   - USE_QDRANT: {USE_QDRANT}")
+    logger.info(f"   - USE_BROWSER_STORAGE: {USE_BROWSER_STORAGE}")
+    logger.info(f"   - Vercel Environment: {is_vercel_environment()}")
+    
     return {
         "status": "ok",
         "readonly": IS_READONLY,
@@ -309,20 +408,24 @@ async def list_files():
             if file_id in file_metadata:
                 actual_filename = file_metadata[file_id]["filename"]
                 actual_vector_store_type = file_metadata[file_id]["vector_store_type"]
-                print(f"✅ Found metadata for {file_id}: {actual_filename} ({actual_vector_store_type})")
+                logger.info(f"✅ Found metadata for {file_id}: {actual_filename} ({actual_vector_store_type})")
             elif file_id in vector_databases and "filename" in vector_databases[file_id]:
                 actual_filename = vector_databases[file_id]["filename"]
                 actual_vector_store_type = "memory" if file_id in vector_databases else "browser"
-                print(f"✅ Found vector database info for {file_id}: {actual_filename}")
+                logger.info(f"✅ Found vector database info for {file_id}: {actual_filename}")
             else:
-                print(f"⚠️ No metadata found for {file_id}, using generic: {actual_filename}")
+                logger.warning(f"⚠️ No metadata found for {file_id}, using generic: {actual_filename}")
+            
+            # Determine if file is ready for chat
+            ready_for_chat = bool(status_info["status"] in ["completed", "ready"] or file_id in vector_databases)
             
             files.append({
                 "file_id": file_id,
                 "filename": actual_filename,
                 "indexing_status": status_info["status"],
                 "message": status_info["message"],
-                "vector_store_type": actual_vector_store_type
+                "vector_store_type": actual_vector_store_type,
+                "ready_for_chat": ready_for_chat
             })
     else:
         # In non-read-only mode, scan the uploads directory
@@ -335,12 +438,17 @@ async def list_files():
                     filename = filename_parts[1]
                     
                     status_info = indexing_status.get(file_id, {"status": "unknown", "message": "File not found"})
+                    
+                    # Determine if file is ready for chat
+                    ready_for_chat = bool(status_info["status"] in ["completed", "ready"] or file_id in vector_databases)
+                    
                     files.append({
                         "file_id": file_id,
                         "filename": filename,
                         "indexing_status": status_info["status"],
                         "message": status_info["message"],
-                        "vector_store_type": "memory" if file_id in vector_databases else "disk"
+                        "vector_store_type": "memory" if file_id in vector_databases else "disk",
+                        "ready_for_chat": ready_for_chat
                     })
     
     return {"files": files}
@@ -350,7 +458,14 @@ async def list_files():
 async def get_file_status(file_id: str):
     """Get indexing status for a specific file"""
     status_info = indexing_status.get(file_id, {"status": "unknown", "message": "File not found"})
-    return status_info
+    
+    # Determine if file is ready for chat
+    ready_for_chat = bool(status_info["status"] in ["completed", "ready"] or file_id in vector_databases)
+    
+    return {
+        **status_info,
+        "ready_for_chat": ready_for_chat
+    }
 
 # Chat history endpoint
 @app.get("/api/chat-history")
@@ -366,7 +481,7 @@ async def get_chat_history():
                     data = json.load(f)
                     sessions.append(ChatSession(**data))
             except Exception as e:
-                print(f"Warning: Failed to load session {session_file}: {e}")
+                logger.warning(f"Warning: Failed to load session {session_file}: {e}")
     
     return {"sessions": [session.dict() for session in sessions]}
 
@@ -397,7 +512,7 @@ async def index_file(file_content: bytes, file_id: str, filename: str):
                     f.write(file_content)
                 temp_file_path = str(file_path)
             
-            print(f"🔍 Processing PDF: {filename} ({len(file_content)} bytes)")
+            logger.info(f"🔍 Processing PDF: {filename} ({len(file_content)} bytes)")
             
             # Try multiple PDF text extraction methods
             documents = []
@@ -406,9 +521,9 @@ async def index_file(file_content: bytes, file_id: str, filename: str):
             try:
                 pdf_loader = PDFLoader(temp_file_path)
                 documents = pdf_loader.load_documents()
-                print(f"✅ PDFLoader extracted {len(documents)} documents")
+                logger.info(f"✅ PDFLoader extracted {len(documents)} documents")
             except Exception as e:
-                print(f"⚠️ PDFLoader failed: {str(e)}")
+                logger.warning(f"⚠️ PDFLoader failed: {str(e)}")
                 documents = []
             
             # Method 2: Try PyPDF2 if PDFLoader failed
@@ -423,9 +538,9 @@ async def index_file(file_content: bytes, file_id: str, filename: str):
                             text = page.extract_text()
                             if text.strip():
                                 documents.append(text)
-                    print(f"✅ PyPDF2 extracted {len(documents)} pages")
+                    logger.info(f"✅ PyPDF2 extracted {len(documents)} pages")
                 except Exception as e:
-                    print(f"⚠️ PyPDF2 failed: {str(e)}")
+                    logger.warning(f"⚠️ PyPDF2 failed: {str(e)}")
                     documents = []
             
             # Method 3: Basic text extraction as last resort
@@ -439,17 +554,33 @@ async def index_file(file_content: bytes, file_id: str, filename: str):
                             text = page.extract_text()
                             if text.strip():
                                 documents.append(text)
-                    print(f"✅ Basic extraction got {len(documents)} pages")
+                    logger.info(f"✅ Basic extraction got {len(documents)} pages")
                 except Exception as e:
-                    print(f"⚠️ Basic extraction failed: {str(e)}")
+                    logger.warning(f"⚠️ Basic extraction failed: {str(e)}")
                     documents = []
             
             if not documents:
                 raise ValueError("Could not extract text from PDF using any method")
             
             # Split text into chunks
-            splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+            # OPTIMIZATION: Use smaller chunks for better performance
+            splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=100)
             chunks = splitter.split_texts(documents)
+            
+            # OPTIMIZATION: For small files, use even smaller chunks and lower limits
+            total_text_length = sum(len(doc) for doc in documents)
+            max_chunks = 50  # Default limit
+            
+            if total_text_length < 10000:  # Small files (< 10KB)
+                max_chunks = 20  # Even fewer chunks for small files
+                logger.info(f"📝 Small file detected ({total_text_length} chars), limiting to {max_chunks} chunks")
+            elif total_text_length < 50000:  # Medium files (< 50KB)
+                max_chunks = 35
+                logger.info(f"📄 Medium file detected ({total_text_length} chars), limiting to {max_chunks} chunks")
+            
+            if len(chunks) > max_chunks:
+                logger.warning(f"⚠️ Limiting chunks from {len(chunks)} to {max_chunks} for performance")
+                chunks = chunks[:max_chunks]
             
         elif file_type == 'text':
             # Handle markdown and text files
@@ -459,8 +590,23 @@ async def index_file(file_content: bytes, file_id: str, filename: str):
                 raise ValueError("No text could be extracted from the file")
             
             # Split text into chunks
-            splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+            splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=100)
             chunks = splitter.split_texts(documents)
+            
+            # OPTIMIZATION: For small files, use even smaller chunks and lower limits
+            total_text_length = sum(len(doc) for doc in documents)
+            max_chunks = 50  # Default limit
+            
+            if total_text_length < 10000:  # Small files (< 10KB)
+                max_chunks = 20  # Even fewer chunks for small files
+                logger.info(f"📝 Small file detected ({total_text_length} chars), limiting to {max_chunks} chunks")
+            elif total_text_length < 50000:  # Medium files (< 50KB)
+                max_chunks = 35
+                logger.info(f"📄 Medium file detected ({total_text_length} chars), limiting to {max_chunks} chunks")
+            
+            if len(chunks) > max_chunks:
+                logger.warning(f"⚠️ Limiting chunks from {len(chunks)} to {max_chunks} for performance")
+                chunks = chunks[:max_chunks]
             
         elif file_type == 'csv':
             # Handle CSV files
@@ -470,8 +616,23 @@ async def index_file(file_content: bytes, file_id: str, filename: str):
                 raise ValueError("No text could be extracted from the file")
             
             # Split text into chunks
-            splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+            splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=100)
             chunks = splitter.split_texts(documents)
+            
+            # OPTIMIZATION: For small files, use even smaller chunks and lower limits
+            total_text_length = sum(len(doc) for doc in documents)
+            max_chunks = 50  # Default limit
+            
+            if total_text_length < 10000:  # Small files (< 10KB)
+                max_chunks = 20  # Even fewer chunks for small files
+                logger.info(f"📝 Small file detected ({total_text_length} chars), limiting to {max_chunks} chunks")
+            elif total_text_length < 50000:  # Medium files (< 50KB)
+                max_chunks = 35
+                logger.info(f"📄 Medium file detected ({total_text_length} chars), limiting to {max_chunks} chunks")
+            
+            if len(chunks) > max_chunks:
+                logger.warning(f"⚠️ Limiting chunks from {len(chunks)} to {max_chunks} for performance")
+                chunks = chunks[:max_chunks]
             
         elif file_type == 'json':
             # Handle JSON files
@@ -481,8 +642,23 @@ async def index_file(file_content: bytes, file_id: str, filename: str):
                 raise ValueError("No text could be extracted from the file")
             
             # Split text into chunks
-            splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+            splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=100)
             chunks = splitter.split_texts(documents)
+            
+            # OPTIMIZATION: For small files, use even smaller chunks and lower limits
+            total_text_length = sum(len(doc) for doc in documents)
+            max_chunks = 50  # Default limit
+            
+            if total_text_length < 10000:  # Small files (< 10KB)
+                max_chunks = 20  # Even fewer chunks for small files
+                logger.info(f"📝 Small file detected ({total_text_length} chars), limiting to {max_chunks} chunks")
+            elif total_text_length < 50000:  # Medium files (< 50KB)
+                max_chunks = 35
+                logger.info(f"📄 Medium file detected ({total_text_length} chars), limiting to {max_chunks} chunks")
+            
+            if len(chunks) > max_chunks:
+                logger.warning(f"⚠️ Limiting chunks from {len(chunks)} to {max_chunks} for performance")
+                chunks = chunks[:max_chunks]
             
         else:
             raise ValueError(f"Unsupported file type: {file_type}")
@@ -547,28 +723,28 @@ async def chat_with_file(request: FileChatRequest):
         if not request.file_ids:
             raise HTTPException(status_code=400, detail="At least one file ID is required")
         
-        print(f"🔍 Chat request for files: {request.file_ids}")
-        print(f"📊 Available vector databases: {list(vector_databases.keys())}")
-        print(f"📊 Available indexing status: {list(indexing_status.keys())}")
+        logger.info(f"🔍 Chat request for files: {request.file_ids}")
+        logger.info(f"📊 Available vector databases: {list(vector_databases.keys())}")
+        logger.info(f"📊 Available indexing status: {list(indexing_status.keys())}")
         
         # Check if all files are indexed
         missing_files = []
         failed_files = []
         for file_id in request.file_ids:
-            print(f"🔍 Checking file {file_id}:")
-            print(f"   - In vector_databases: {file_id in vector_databases}")
-            print(f"   - In indexing_status: {file_id in indexing_status}")
+            logger.info(f"🔍 Checking file {file_id}:")
+            logger.info(f"   - In vector_databases: {file_id in vector_databases}")
+            logger.info(f"   - In indexing_status: {file_id in indexing_status}")
             
             if file_id not in vector_databases:
                 # Check if file has failed indexing
                 status_info = indexing_status.get(file_id, {"status": "unknown", "message": "File not found"})
-                print(f"   - Status: {status_info}")
+                logger.info(f"   - Status: {status_info}")
                 if status_info["status"] == "failed":
                     failed_files.append(f"{file_id} (failed: {status_info['message']})")
                 else:
                     missing_files.append(f"{file_id} (status: {status_info['status']})")
             else:
-                print(f"   - ✅ File found in vector_databases")
+                logger.info(f"   - ✅ File found in vector_databases")
         
         if missing_files or failed_files:
             error_details = []
@@ -794,7 +970,7 @@ async def upload_file(file: UploadFile = File(...)):
         
         # Determine vector store type
         vector_store_type = "qdrant" if USE_QDRANT else "memory"
-        print(f"🔧 Vector store type for {file_id}: {vector_store_type}")
+        logger.info(f"🔧 Vector store type for {file_id}: {vector_store_type}")
         
         # Store file metadata immediately for list_files endpoint
         file_metadata[file_id] = {
@@ -802,7 +978,7 @@ async def upload_file(file: UploadFile = File(...)):
             "vector_store_type": vector_store_type,
             "uploaded_at": datetime.now().isoformat()
         }
-        print(f"💾 Stored metadata for {file_id}: filename={filename}, vector_store_type={vector_store_type}")
+        logger.info(f"💾 Stored metadata for {file_id}: filename={filename}, vector_store_type={vector_store_type}")
         
         if IS_READONLY and USE_BROWSER_STORAGE:
             # In read-only mode with browser storage enabled, return the file content for browser storage
@@ -838,7 +1014,7 @@ async def upload_file(file: UploadFile = File(...)):
                 with open(FILE_METADATA_PATH, 'w') as f:
                     json.dump(file_metadata, f)
             except Exception as e:
-                print(f"⚠️ Failed to save file_metadata: {e}")
+                logger.warning(f"⚠️ Failed to save file_metadata: {e}")
             
             return FileUploadResponse(
                 filename=filename,
@@ -858,9 +1034,12 @@ async def upload_file(file: UploadFile = File(...)):
 @app.post("/api/pre-indexed-file")
 async def accept_pre_indexed_file(request: PreIndexedFileRequest):
     """Accept pre-indexed file data from the frontend for browser-stored files"""
+    import time
+    start_time = time.time()
+    
     try:
-        print(f"🔍 Processing pre-indexed file: {request.file_id} ({request.filename})")
-        print(f"📊 Received {len(request.chunks)} chunks")
+        logger.info(f"🔍 Processing pre-indexed file: {request.file_id} ({request.filename})")
+        logger.info(f"📊 Received {len(request.chunks)} chunks")
         
         # Validate input
         if not request.chunks:
@@ -871,40 +1050,70 @@ async def accept_pre_indexed_file(request: PreIndexedFileRequest):
         if not api_key:
             raise ValueError("OpenAI API key not configured on backend")
         
-        # Create OpenAI client
-        client = OpenAI(api_key=api_key)
+        # Create OpenAI client with timeout
+        import httpx
+        client = OpenAI(
+            api_key=api_key,
+            http_client=httpx.Client(timeout=30.0)  # 30 second timeout
+        )
         
-        print(f"🔗 Creating embeddings for {len(request.chunks)} chunks...")
+        logger.info(f"🔗 Creating embeddings for {len(request.chunks)} chunks...")
+        embedding_start_time = time.time()
         
-        # Create real embeddings using OpenAI API
+        # OPTIMIZATION: Create embeddings in smaller batches for better performance
         embeddings = []
-        for i, chunk in enumerate(request.chunks):
+        batch_size = 50  # Reduced from 100 to avoid timeouts
+        
+        for i in range(0, len(request.chunks), batch_size):
+            batch_chunks = request.chunks[i:i + batch_size]
             try:
                 response = client.embeddings.create(
-                    input=chunk,
+                    input=batch_chunks,
                     model="text-embedding-3-small"
                 )
-                embedding = response.data[0].embedding
-                embeddings.append(embedding)
-                print(f"✅ Created embedding {i+1}/{len(request.chunks)}")
+                batch_embeddings = [data.embedding for data in response.data]
+                embeddings.extend(batch_embeddings)
+                logger.info(f"✅ Created embeddings batch {i//batch_size + 1}/{(len(request.chunks) + batch_size - 1)//batch_size} ({len(batch_chunks)} chunks)")
             except Exception as e:
-                print(f"❌ Error creating embedding {i+1}: {str(e)}")
+                logger.error(f"❌ Error creating embeddings batch {i//batch_size + 1}: {str(e)}")
+                # Update status to failed
+                indexing_status[request.file_id] = {
+                    "status": "failed",
+                    "message": f"Embedding creation failed: {str(e)}"
+                }
                 raise
         
-        print(f"✅ Created {len(embeddings)} embeddings successfully")
+        embedding_time = time.time() - embedding_start_time
+        logger.info(f"✅ Created {len(embeddings)} embeddings in {embedding_time:.2f} seconds")
         
         # Create vector database based on configuration
+        vector_start_time = time.time()
         vector_db = create_vector_database(request.file_id)
         
-        # Insert chunks and embeddings into vector database
+        # OPTIMIZATION: Insert chunks and embeddings in smaller batches
         import numpy as np
-        for i, (chunk, embedding) in enumerate(zip(request.chunks, embeddings)):
+        insert_batch_size = 25  # Reduced batch size for better performance
+        
+        for i in range(0, len(request.chunks), insert_batch_size):
+            batch_chunks = request.chunks[i:i + insert_batch_size]
+            batch_embeddings = embeddings[i:i + insert_batch_size]
+            
             try:
-                vector_db.insert(chunk, np.array(embedding), metadata={"file_id": request.file_id, "filename": request.filename})
-                print(f"✅ Inserted chunk {i+1}/{len(request.chunks)} into vector database")
+                for j, (chunk, embedding) in enumerate(zip(batch_chunks, batch_embeddings)):
+                    vector_db.insert(chunk, np.array(embedding), metadata={"file_id": request.file_id, "filename": request.filename})
+                
+                logger.info(f"✅ Inserted batch {i//insert_batch_size + 1}/{(len(request.chunks) + insert_batch_size - 1)//insert_batch_size} into vector database")
             except Exception as e:
-                print(f"❌ Error inserting chunk {i+1}: {str(e)}")
+                logger.error(f"❌ Error inserting batch {i//insert_batch_size + 1}: {str(e)}")
+                # Update status to failed
+                indexing_status[request.file_id] = {
+                    "status": "failed",
+                    "message": f"Vector database insertion failed: {str(e)}"
+                }
                 raise
+        
+        vector_time = time.time() - vector_start_time
+        logger.info(f"✅ Vector database operations completed in {vector_time:.2f} seconds")
         
         # Store the vector database in memory for quick access
         vector_databases[request.file_id] = {
@@ -913,8 +1122,8 @@ async def accept_pre_indexed_file(request: PreIndexedFileRequest):
             "filename": request.filename
         }
         
-        print(f"📊 Stored file {request.file_id} in vector_databases")
-        print(f"📊 Current vector_databases keys: {list(vector_databases.keys())}")
+        logger.info(f"📊 Stored file {request.file_id} in vector_databases")
+        logger.info(f"📊 Current vector_databases keys: {list(vector_databases.keys())}")
         
         # Update indexing status
         indexing_status[request.file_id] = {
@@ -922,14 +1131,21 @@ async def accept_pre_indexed_file(request: PreIndexedFileRequest):
             "message": f"Successfully indexed {len(request.chunks)} text chunks from browser storage"
         }
         
-        print(f"📊 Updated indexing status for {request.file_id}")
-        print(f"📊 Current indexing_status keys: {list(indexing_status.keys())}")
+        logger.info(f"📊 Updated indexing status for {request.file_id}")
+        logger.info(f"📊 Current indexing_status keys: {list(indexing_status.keys())}")
         
-        print(f"✅ Successfully indexed file {request.file_id} with {len(request.chunks)} chunks")
+        total_time = time.time() - start_time
+        logger.info(f"✅ Successfully indexed file {request.file_id} with {len(request.chunks)} chunks in {total_time:.2f} seconds")
+        logger.info(f"📊 Performance breakdown:")
+        logger.info(f"   - Embedding creation: {embedding_time:.2f}s ({embedding_time/total_time*100:.1f}%)")
+        logger.info(f"   - Vector database: {vector_time:.2f}s ({vector_time/total_time*100:.1f}%)")
+        logger.info(f"   - Other operations: {total_time-embedding_time-vector_time:.2f}s ({(total_time-embedding_time-vector_time)/total_time*100:.1f}%)")
+        
         return {"message": "File indexed successfully", "chunks_count": len(request.chunks)}
         
     except Exception as e:
-        print(f"❌ Error indexing file {request.file_id}: {str(e)}")
+        total_time = time.time() - start_time
+        logger.error(f"❌ Error indexing file {request.file_id} after {total_time:.2f} seconds: {str(e)}")
         # Update status to failed
         indexing_status[request.file_id] = {
             "status": "failed",
@@ -953,9 +1169,9 @@ async def delete_file(file_id: str):
             if USE_QDRANT and hasattr(vector_db, 'delete_collection'):
                 try:
                     vector_db.delete_collection()
-                    print(f"✅ Deleted Qdrant collection for file {file_id}")
+                    logger.info(f"✅ Deleted Qdrant collection for file {file_id}")
                 except Exception as e:
-                    print(f"⚠️ Warning: Could not delete Qdrant collection: {str(e)}")
+                    logger.warning(f"⚠️ Warning: Could not delete Qdrant collection: {str(e)}")
             
             del vector_databases[file_id]
             deleted = True
@@ -998,7 +1214,7 @@ async def delete_file(file_id: str):
             raise HTTPException(status_code=404, detail="File not found")
             
     except Exception as e:
-        print(f"Error deleting file {file_id}: {str(e)}")
+        logger.error(f"Error deleting file {file_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to delete file: {str(e)}")
 
 # Define delete all files endpoint
@@ -1022,9 +1238,9 @@ async def delete_all_files():
                     if USE_QDRANT and hasattr(vector_db, 'delete_collection'):
                         try:
                             vector_db.delete_collection()
-                            print(f"✅ Deleted Qdrant collection for file {file_id}")
+                            logger.info(f"✅ Deleted Qdrant collection for file {file_id}")
                         except Exception as e:
-                            print(f"⚠️ Warning: Could not delete Qdrant collection: {str(e)}")
+                            logger.warning(f"⚠️ Warning: Could not delete Qdrant collection: {str(e)}")
                     
                     del vector_databases[file_id]
                 
@@ -1039,7 +1255,7 @@ async def delete_all_files():
                 deleted_count += 1
                 
             except Exception as e:
-                print(f"Warning: Failed to delete file {file_id}: {e}")
+                logger.warning(f"Warning: Failed to delete file {file_id}: {e}")
         
         # Clear all chat sessions
         chat_sessions.clear()
@@ -1050,12 +1266,12 @@ async def delete_all_files():
                 for file_path in UPLOADS_DIR.glob("*"):
                     file_path.unlink()
             except Exception as e:
-                print(f"Warning: Failed to delete files from disk: {e}")
+                logger.warning(f"Warning: Failed to delete files from disk: {e}")
         
         return {"message": f"Deleted {deleted_count} files successfully"}
         
     except Exception as e:
-        print(f"Error deleting all files: {str(e)}")
+        logger.error(f"Error deleting all files: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to delete all files: {str(e)}")
 
 # Test endpoint for PDF processing
@@ -1081,7 +1297,7 @@ async def test_pdf_processing(file: UploadFile = File(...)):
             documents = pdf_loader.load_documents()
             method = "PDFLoader"
         except Exception as e:
-            print(f"PDFLoader failed: {str(e)}")
+            logger.warning(f"PDFLoader failed: {str(e)}")
             
             # Method 2: Try PyPDF2
             try:
@@ -1096,7 +1312,7 @@ async def test_pdf_processing(file: UploadFile = File(...)):
                             documents.append(text)
                 method = "PyPDF2"
             except Exception as e2:
-                print(f"PyPDF2 failed: {str(e2)}")
+                logger.warning(f"PyPDF2 failed: {str(e2)}")
                 
                 # Method 3: Basic extraction
                 try:
@@ -1110,7 +1326,7 @@ async def test_pdf_processing(file: UploadFile = File(...)):
                                 documents.append(text)
                     method = "Basic extraction"
                 except Exception as e3:
-                    print(f"Basic extraction failed: {str(e3)}")
+                    logger.warning(f"Basic extraction failed: {str(e3)}")
                     documents = []
                     method = "Failed"
         

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { api } from '@/services/api';
+import { api, getBrowserStoredFiles } from '@/services/api';
 import type { ChatSession, FileInfo } from '@/services/api';
 
 interface Message {
@@ -341,8 +341,26 @@ export default function Chat({ fileListVersion = 0 }: ChatProps) {
 
   const loadFiles = async () => {
     try {
-      const files = await api.listFiles();
-      setFiles(files);
+      const response = await api.listFiles();
+      const browserFiles = api.getBrowserStoredFiles();
+      
+      console.log('🔍 Debug: API response files:', response);
+      
+      const mergedFiles = response.map(file => {
+        const browserMeta = browserFiles[file.file_id];
+        const isReadyForChat = file.indexing_status === 'completed' || (browserMeta && browserMeta.filename);
+        
+        console.log(`🔍 Debug: File ${file.file_id} ready_for_chat type:`, typeof file.ready_for_chat, 'value:', file.ready_for_chat);
+        
+        return {
+          ...file,
+          filename: (file.filename && !file.filename.startsWith('File_')) ? file.filename : (browserMeta?.filename || file.filename),
+          vector_store_type: (file.vector_store_type && file.vector_store_type !== 'Unknown') ? file.vector_store_type : (browserMeta?.vector_store_type || file.vector_store_type),
+          ready_for_chat: Boolean(isReadyForChat)
+        };
+      });
+      
+      setFiles(mergedFiles);
     } catch (error) {
       console.error('Failed to load files:', error);
       setError('Failed to load files');
@@ -521,7 +539,7 @@ export default function Chat({ fileListVersion = 0 }: ChatProps) {
     return new Date(timestamp).toLocaleString();
   };
 
-  const readyFiles = Array.isArray(files) ? files.filter(file => file.indexing_status === 'completed') : [];
+  const readyFiles = Array.isArray(files) ? files.filter(file => file.ready_for_chat) : [];
 
   return (
     <div className="flex flex-col h-[80vh] max-w-4xl mx-auto p-4">

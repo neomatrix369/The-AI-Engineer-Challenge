@@ -125,13 +125,39 @@ export default function FileUpload({ onFileListChange }: FileUploadProps) {
     });
   };
 
+  // Check if a file is ready for chat (completed or has browser storage)
+  const isFileReadyForChat = (file: FileInfo): boolean => {
+    // If indexing is completed, it's ready
+    if (file.indexing_status === 'completed') {
+      return true;
+    }
+    
+    // In read-only mode, check if file exists in browser storage
+    const browserFiles = getBrowserStoredFiles();
+    const browserMeta = browserFiles[file.file_id];
+    
+    // If we have browser storage metadata, the file should be available
+    if (browserMeta && browserMeta.filename) {
+      return true;
+    }
+    
+    return false;
+  };
+
   // Update loadFiles to use merge
   const loadFiles = async () => {
     try {
       setIsLoading(true);
       const files = await api.listFiles();
       const mergedFiles = mergeFilesWithBrowserMetadata(files);
-      setFiles(mergedFiles);
+      
+      // Mark files as ready if they have browser storage
+      const filesWithChatStatus = mergedFiles.map(file => ({
+        ...file,
+        ready_for_chat: isFileReadyForChat(file)
+      }));
+      
+      setFiles(filesWithChatStatus);
     } catch (error) {
       console.error('Failed to load files:', error);
       setUploadMessage('Failed to load existing files');

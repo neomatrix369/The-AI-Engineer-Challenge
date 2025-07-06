@@ -284,8 +284,9 @@ export class FileProcessor {
 
   /**
    * Split text into chunks similar to the backend CharacterTextSplitter
+   * OPTIMIZATION: Use smaller chunks for better performance
    */
-  static splitTextIntoChunks(texts: string[], chunkSize: number = 1000, chunkOverlap: number = 200): string[] {
+  static splitTextIntoChunks(texts: string[], chunkSize: number = 500, chunkOverlap: number = 100): string[] {
     const chunks: string[] = [];
     
     for (const text of texts) {
@@ -318,87 +319,87 @@ export class FileProcessor {
       }
     }
     
+    // OPTIMIZATION: For small files, use even smaller chunks and lower limits
+    const totalTextLength = texts.reduce((sum, text) => sum + text.length, 0);
+    let maxChunks = 50; // Default limit
+    
+    if (totalTextLength < 10000) { // Small files (< 10KB)
+      maxChunks = 20; // Even fewer chunks for small files
+      console.log(`📝 Small file detected (${totalTextLength} chars), limiting to ${maxChunks} chunks`);
+    } else if (totalTextLength < 50000) { // Medium files (< 50KB)
+      maxChunks = 35;
+      console.log(`📄 Medium file detected (${totalTextLength} chars), limiting to ${maxChunks} chunks`);
+    }
+    
+    if (chunks.length > maxChunks) {
+      console.log(`⚠️ Limiting chunks from ${chunks.length} to ${maxChunks} for performance`);
+      return chunks.slice(0, maxChunks);
+    }
+    
     return chunks;
+  }
+
+  /**
+   * Get file type based on extension
+   */
+  static getFileType(filename: string): string {
+    const ext = filename.toLowerCase().split('.').pop() || '';
+    if (ext === 'pdf') return 'pdf';
+    if (ext === 'json') return 'json';
+    if (ext === 'csv') return 'csv';
+    if (['md', 'txt'].includes(ext)) return 'text';
+    return 'unknown';
   }
 
   /**
    * Process any supported file type: PDF, Markdown, Text, CSV, or JSON
    * and send pre-indexed data to backend (chunks only, no embeddings)
    */
-  static async processFile(file: File, fileId?: string): Promise<{
-    chunks: string[];
-  }> {
-    const fileType = file.name.toLowerCase().split('.').pop();
-    
-    let textChunks: string[];
-    
-    if (fileType === 'pdf') {
-      // Extract text from PDF with built-in fallback handling
-      textChunks = await this.extractTextFromPDF(file);
-    } else if (fileType === 'md' || fileType === 'txt') {
-      // Extract text from markdown or text files
-      textChunks = await this.extractTextFromFile(file);
-    } else if (fileType === 'csv') {
-      // Extract text from CSV files
-      textChunks = await this.extractTextFromCSV(file);
-    } else if (fileType === 'json') {
-      // Extract text from JSON files
-      textChunks = await this.extractTextFromJSON(file);
-    } else {
-      throw new Error(`Unsupported file type: ${fileType}`);
-    }
-    
-    if (textChunks.length === 0) {
-      throw new Error('No text could be extracted from the file');
-    }
-    
-    // Split text into chunks
-    const chunks = this.splitTextIntoChunks(textChunks);
-    
-    if (chunks.length === 0) {
-      throw new Error('No text chunks could be created from the file');
-    }
-    
-    // Send only chunks to backend for processing (no embeddings)
-    console.log('🔗 Sending pre-indexed file data (chunks only) to backend...');
+  static async processFile(file: File, fileId: string): Promise<{ chunks: string[] }> {
+    console.log(`🔍 Processing file: ${file.name} (${file.size} bytes)`);
     
     try {
-      // Use provided fileId or generate one if not provided
-      const finalFileId = fileId || crypto.randomUUID();
+      const fileType = this.getFileType(file.name);
+      let textContent = '';
       
-      // Get API base URL (same logic as api.ts)
-      const FALLBACK_API_URL = 'http://localhost:8000';
-      const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || FALLBACK_API_URL;
-      
-      const response = await fetch(`${API_BASE_URL}/api/pre-indexed-file`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          file_id: finalFileId,
-          filename: file.name,
-          chunks: chunks
-        }),
-      });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ Backend processing error:', response.status, errorText);
-        throw new Error(`Backend processing failed: ${response.statusText}`);
+      if (fileType === 'pdf') {
+        const textChunks = await this.extractTextFromPDF(file);
+        textContent = textChunks.join('\n\n');
+      } else if (fileType === 'json') {
+        const textChunks = await this.extractTextFromJSON(file);
+        textContent = textChunks.join('\n\n');
+      } else if (fileType === 'csv') {
+        const textChunks = await this.extractTextFromCSV(file);
+        textContent = textChunks.join('\n\n');
+      } else {
+        const textChunks = await this.extractTextFromFile(file);
+        textContent = textChunks.join('\n\n');
       }
       
-      const result = await response.json();
-      console.log('✅ Backend processing completed:', result);
+      if (!textContent.trim()) {
+        throw new Error('No text content could be extracted from the file');
+      }
       
-      // Return the chunks for browser storage
-      return {
-        chunks
-      };
+      // Split text into chunks
+      const chunks = this.splitTextIntoChunks([textContent]);
       
+      // OPTIMIZATION: Limit chunks for better performance in read-only environments
+      const maxChunks = 30; // Limit to 30 chunks for performance
+      const limitedChunks = chunks.slice(0, maxChunks);
+      
+      if (chunks.length > maxChunks) {
+        console.log(`⚠️ Limited chunks from ${chunks.length} to ${maxChunks} for performance`);
+      }
+      
+      console.log(`✅ Extracted ${limitedChunks.length} chunks from ${file.name}`);
+      
+      // Send chunks to backend for indexing
+      await this.sendChunksToBackend(fileId, file.name, limitedChunks);
+      
+      return { chunks: limitedChunks };
     } catch (error) {
-      console.error('❌ Error sending to backend:', error);
-      throw new Error(`Failed to process file with backend: ${error instanceof Error ? error.message : String(error)}`);
+      console.error('Error processing file:', error);
+      throw error;
     }
   }
 
@@ -406,9 +407,55 @@ export class FileProcessor {
    * Process a PDF file completely: extract text, split into chunks, and create embeddings
    * @deprecated Use processFile instead
    */
-  static async processPDF(file: File): Promise<{
+  static async processPDF(file: File, fileId: string): Promise<{
     chunks: string[];
   }> {
-    return this.processFile(file);
+    return this.processFile(file, fileId);
+  }
+
+  private static async sendChunksToBackend(fileId: string, filename: string, chunks: string[]): Promise<void> {
+    const maxRetries = 3;
+    let lastError: Error | null = null;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`📤 Sending ${chunks.length} chunks to backend (attempt ${attempt}/${maxRetries})`);
+        
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/pre-indexed-file`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            file_id: fileId,
+            filename: filename,
+            chunks: chunks,
+          }),
+        });
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Backend error: ${response.status} - ${errorText}`);
+        }
+        
+        const result = await response.json();
+        console.log(`✅ Successfully sent chunks to backend:`, result);
+        return;
+        
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        console.error(`❌ Attempt ${attempt} failed:`, lastError.message);
+        
+        if (attempt < maxRetries) {
+          // Wait before retrying (exponential backoff)
+          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+          console.log(`⏳ Retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+    }
+    
+    // All retries failed
+    throw new Error(`Failed to send chunks to backend after ${maxRetries} attempts: ${lastError?.message}`);
   }
 } 

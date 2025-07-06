@@ -42,6 +42,7 @@ export interface FileInfo {
   indexing_status: string;
   message: string;
   vector_store_type: string;
+  ready_for_chat?: boolean;
 }
 
 interface FileListResponse {

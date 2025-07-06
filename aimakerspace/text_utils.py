@@ -1,6 +1,10 @@
 import os
 from typing import List
 import PyPDF2
+import logging
+
+# Set up logger for this module
+logger = logging.getLogger(__name__)
 
 
 class TextFileLoader:
@@ -67,14 +71,14 @@ class PDFLoader:
     def __init__(self, path: str):
         self.documents = []
         self.path = path
-        print(f"PDFLoader initialized with path: {self.path}")
+        logger.info(f"PDFLoader initialized with path: {self.path}")
 
     def load(self):
-        print(f"Loading PDF from path: {self.path}")
-        print(f"Path exists: {os.path.exists(self.path)}")
-        print(f"Is file: {os.path.isfile(self.path)}")
-        print(f"Is directory: {os.path.isdir(self.path)}")
-        print(f"File permissions: {oct(os.stat(self.path).st_mode)[-3:]}")
+        logger.info(f"Loading PDF from path: {self.path}")
+        logger.info(f"Path exists: {os.path.exists(self.path)}")
+        logger.info(f"Is file: {os.path.isfile(self.path)}")
+        logger.info(f"Is directory: {os.path.isdir(self.path)}")
+        logger.info(f"File permissions: {oct(os.stat(self.path).st_mode)[-3:]}")
         
         try:
             # Try to open the file first to verify access
@@ -126,11 +130,11 @@ if __name__ == "__main__":
     loader.load()
     splitter = CharacterTextSplitter()
     chunks = splitter.split_texts(loader.documents)
-    print(len(chunks))
-    print(chunks[0])
-    print("--------")
-    print(chunks[1])
-    print("--------")
-    print(chunks[-2])
-    print("--------")
-    print(chunks[-1])
+    logger.info(len(chunks))
+    logger.info(chunks[0])
+    logger.info("--------")
+    logger.info(chunks[1])
+    logger.info("--------")
+    logger.info(chunks[-2])
+    logger.info("--------")
+    logger.info(chunks[-1])

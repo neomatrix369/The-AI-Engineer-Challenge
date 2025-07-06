@@ -4,9 +4,13 @@ from typing import List, Tuple, Callable
 from aimakerspace.openai_utils.embedding import EmbeddingModel
 import asyncio
 import os
+import logging
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 import uuid
+
+# Set up logger for this module
+logger = logging.getLogger(__name__)
 
 
 def cosine_similarity(vector_a: np.array, vector_b: np.array) -> float:
@@ -91,12 +95,12 @@ class QdrantVectorDatabase:
                         distance=Distance.COSINE
                     )
                 )
-                print(f"✅ Created Qdrant collection: {self.collection_name}")
+                logger.info(f"✅ Created Qdrant collection: {self.collection_name}")
             else:
-                print(f"✅ Using existing Qdrant collection: {self.collection_name}")
+                logger.info(f"✅ Using existing Qdrant collection: {self.collection_name}")
         except Exception as e:
-            print(f"⚠️ Warning: Could not connect to Qdrant: {str(e)}")
-            print("⚠️ Falling back to in-memory vector database")
+            logger.warning(f"⚠️ Warning: Could not connect to Qdrant: {str(e)}")
+            logger.warning("⚠️ Falling back to in-memory vector database")
             raise
     
     def insert(self, key: str, vector: np.array, metadata: dict = None) -> None:
@@ -115,7 +119,7 @@ class QdrantVectorDatabase:
                 points=[point]
             )
         except Exception as e:
-            print(f"❌ Error inserting into Qdrant: {str(e)}")
+            logger.error(f"❌ Error inserting into Qdrant: {str(e)}")
             raise
     
     def search(
@@ -134,7 +138,7 @@ class QdrantVectorDatabase:
             
             return [(result.payload["text"], result.score) for result in results]
         except Exception as e:
-            print(f"❌ Error searching Qdrant: {str(e)}")
+            logger.error(f"❌ Error searching Qdrant: {str(e)}")
             return []
     
     def search_by_text(
@@ -178,19 +182,19 @@ class QdrantVectorDatabase:
                 points=points
             )
             
-            print(f"✅ Inserted {len(points)} documents into Qdrant collection: {self.collection_name}")
+            logger.info(f"✅ Inserted {len(points)} documents into Qdrant collection: {self.collection_name}")
             return self
         except Exception as e:
-            print(f"❌ Error building Qdrant collection: {str(e)}")
+            logger.error(f"❌ Error building Qdrant collection: {str(e)}")
             raise
     
     def delete_collection(self):
         """Delete the collection (use with caution)"""
         try:
             self.client.delete_collection(collection_name=self.collection_name)
-            print(f"✅ Deleted Qdrant collection: {self.collection_name}")
+            logger.info(f"✅ Deleted Qdrant collection: {self.collection_name}")
         except Exception as e:
-            print(f"❌ Error deleting collection: {str(e)}")
+            logger.error(f"❌ Error deleting collection: {str(e)}")
 
 
 if __name__ == "__main__":
@@ -207,14 +211,14 @@ if __name__ == "__main__":
     k = 2
 
     searched_vector = vector_db.search_by_text("I think fruit is awesome!", k=k)
-    print(f"Closest {k} vector(s):", searched_vector)
+    logger.info(f"Closest {k} vector(s):", searched_vector)
 
     retrieved_vector = vector_db.retrieve_from_key(
         "I like to eat broccoli and bananas."
     )
-    print("Retrieved vector:", retrieved_vector)
+    logger.info("Retrieved vector:", retrieved_vector)
 
     relevant_texts = vector_db.search_by_text(
         "I think fruit is awesome!", k=k, return_as_text=True
     )
-    print(f"Closest {k} text(s):", relevant_texts)
+    logger.info(f"Closest {k} text(s):", relevant_texts)

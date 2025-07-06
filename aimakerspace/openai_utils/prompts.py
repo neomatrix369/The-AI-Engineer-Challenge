@@ -1,4 +1,8 @@
 import re
+import logging
+
+# Set up logger for this module
+logger = logging.getLogger(__name__)
 
 
 class BasePrompt:
@@ -71,8 +75,8 @@ class AssistantRolePrompt(RolePrompt):
 
 if __name__ == "__main__":
     prompt = BasePrompt("Hello {name}, you are {age} years old")
-    print(prompt.format_prompt(name="John", age=30))
+    logger.info(prompt.format_prompt(name="John", age=30))
 
     prompt = SystemRolePrompt("Hello {name}, you are {age} years old")
-    print(prompt.create_message(name="John", age=30))
-    print(prompt.get_input_variables())
+    logger.info(prompt.create_message(name="John", age=30))
+    logger.info(prompt.get_input_variables())
